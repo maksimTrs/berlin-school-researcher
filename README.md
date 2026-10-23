@@ -64,7 +64,7 @@ flowchart TD
 
     subgraph H["Claude: только края"]
         S["skill /school<br/>разбор ввода → input.json"]
-        P["публикация artifact<br/>итог 3–5 строк в чат"]
+        P["публикация artifact<br/>итог в чат: школа · маркер · Startchancen"]
     end
 
     S -->|"npm run resolve"| G
@@ -74,12 +74,17 @@ flowchart TD
         G["geo.ts<br/>адрес → зона → школа → соседи"]
         PT["portrait.ts<br/>Chromium-сессия · подстраницы × 3 года · скриншоты"]
         E["extract.ts<br/>HTML → таблицы, год, Daten-Stand, н/д"]
+        SC["score.ts<br/>маркер 🟢🟡🔴: отмены и учителя по годам"]
+        SN["startchancen.ts<br/>снимок config/startchancen.json"]
         R["report.ts<br/>result.json → report.html"]
         G --> PT --> E --> R
+        E --> SC --> R
+        SN --> R
     end
 
     W[("gdi.berlin.de WFS<br/>adressen_berlin · esb_2026 · schulen")] --> G
     B[("bildung.berlin.de<br/>Schulporträt")] --> PT
+    M[("berlin.de<br/>карта школ Startchancen (KML)")] -.->|"update:startchancen · сверка в canary"| SN
 
     R --> O["out/адрес/<br/>result.json · report.html · screens/*.png"]
     O --> P
@@ -101,7 +106,7 @@ flowchart TD
 
 | Файл | Что делает |
 |---|---|
-| `src/cli.ts` | команды `resolve`, `lookup`, `canary`, `preflight`; сбой одного адреса не останавливает остальные |
+| `src/cli.ts` | команды `resolve`, `lookup`, `canary`, `preflight`, `startchancen`; сбой одного адреса не останавливает остальные |
 | `src/preflight.ts` | проверка критичных источников до запуска браузера |
 | `src/geo.ts` | WFS: адрес, зона, выбор школы, соседи |
 | `src/portrait.ts` | браузер, поиск школы по номеру, загрузка подстраниц, скриншоты |
