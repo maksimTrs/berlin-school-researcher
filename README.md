@@ -107,6 +107,7 @@ flowchart TD
 | `src/portrait.ts` | браузер, поиск школы по номеру, загрузка подстраниц, скриншоты |
 | `src/extract.ts` | список подстраниц (`PAGES`) и ключевых цифр (`KEY_FIGURES`) — новая метрика = новая строка |
 | `src/score.ts` | маркер 🟢🟡🔴 за 3 года: отмены уроков хуже средней по типу школ, дефицит учительских часов — в начале отчёта и в итоге в чат |
+| `src/startchancen.ts` | школа в программе Startchancen — по снимку `config/startchancen.json` |
 | `src/report.ts` | HTML-отчёт |
 | `config/config.json` | слой зон, число лет, соседей, адресов, адрес для canary |
 | `.claude/skills/school/SKILL.md` | что делает Claude по `/school` |
@@ -117,7 +118,8 @@ flowchart TD
 |---|---|
 | `npm run resolve -- --address "Kastanienallee 12"` | только адрес → кандидаты, без браузера |
 | `npm run lookup -- --input input.json` | полный прогон по файлу адресов (формат — в `SKILL.md`) |
-| `npm run canary` | эталонный адрес проходит весь путь; при поломке сайта называет подстраницу и поле |
+| `npm run canary` | эталонный адрес проходит весь путь; при поломке сайта называет подстраницу и поле; сверяет снимок Startchancen с berlin.de |
+| `npm run update:startchancen` | перезаписать снимок списка Startchancen (если `canary` сказал, что список изменился) и закоммитить |
 | `npm run preflight` | доступны ли критичные источники; `lookup` и `canary` проверяют это сами и при сбое не запускаются (exit code 2) |
 | `npm test` | юнит-тесты на сохранённом HTML, без сети |
 | `npm run test:smoke` | живые проверки адрес → зона → школа (S1–S5) |

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Schulen im Startchancen-Programm</name>
+    <Folder>
+      <name>Geförderte Schulen in den Bezirken</name>
+      <Placemark>
+        <name>36. Schule </name>
+        <address>Quedlinburger Str. 56, 12627 Berlin</address>
+        <description><![CDATA[Bezirk: Marzahn-Hellersdorf<br>Schulnummer: 10G36<br>Schulart: Grundschule<br>Adresse: Quedlinburger Str. 56, 12627 Berlin<br>Telefonnummer: 03023639720<br>E-Mail: 10G36@10G36.schule.berlin.de<br>Breitengrad: 52539998754037896<br>Längengrad: 13.613809669259277]]></description>
+        <styleUrl>#icon-1899-9C27B0</styleUrl>
+        <ExtendedData>
+          <Data name="Bezirk">
+            <value>Marzahn-Hellersdorf</value>
+          </Data>
+          <Data name="Schulnummer">
+            <value>10G36</value>
+          </Data>
+          <Data name="Schulart">
+            <value>Grundschule</value>
+          </Data>
+          <Data name="Adresse">
+            <value>Quedlinburger Str. 56, 12627 Berlin</value>
+          </Data>
+          <Data name="Telefonnummer">
+            <value>03023639720</value>
+          </Data>
+          <Data name="E-Mail">
+            <value>10G36@10G36.schule.berlin.de</value>
+          </Data>
+          <Data name="Breitengrad">
+            <value>5.2539998754037896E16</value>
+          </Data>
+          <Data name="Längengrad">
+            <value>13.613809669259277</value>
+          </Data>
+        </ExtendedData>
+      </Placemark>
+      <Placemark>
+        <name>Albert-Gutzmann-Schule (Kooperationsschule)</name>
+        <address>Pankstr. 70, 13357 Berlin</address>
+        <description><![CDATA[Bezirk: Mitte <br>Schulnummer: 01G43<br>Schulart: Grundschule<br>Adresse: Pankstr. 70, 13357 Berlin<br>Telefonnummer: 03046905960<br>E-Mail: 01G43@01G43.schule.berlin.de<br>Breitengrad: 5254922478998866<br>Längengrad: 13.375665755249836]]></description>
+        <styleUrl>#icon-1899-FF5252</styleUrl>
+        <ExtendedData>
+          <Data name="Bezirk">
+            <value>Mitte </value>
+          </Data>
+          <Data name="Schulnummer">
+            <value>01G43</value>
+          </Data>
+          <Data name="Schulart">
+            <value>Grundschule</value>
+          </Data>
+          <Data name="Adresse">
+            <value>Pankstr. 70, 13357 Berlin</value>
+          </Data>
+          <Data name="Telefonnummer">
+            <value>03046905960</value>
+          </Data>
+          <Data name="E-Mail">
+            <value>01G43@01G43.schule.berlin.de</value>
+          </Data>
+          <Data name="Breitengrad">
+            <value>5.254922478998866E15</value>
+          </Data>
+          <Data name="Längengrad">
+            <value>13.375665755249836</value>
+          </Data>
+        </ExtendedData>
+      </Placemark>
+    </Folder>
+    <Folder>
+      <name>Geförderte Schulen nach Schulart</name>
+      <Placemark>
+        <name>36. Schule </name>
+        <address>Quedlinburger Str. 56, 12627 Berlin</address>
+        <description><![CDATA[Bezirk: Marzahn-Hellersdorf<br>Schulnummer: 10G36<br>Schulart: Grundschule<br>Adresse: Quedlinburger Str. 56, 12627 Berlin<br>Telefonnummer: 03023639720<br>E-Mail: 10G36@10G36.schule.berlin.de<br>Breitengrad: 52539998754037896<br>Längengrad: 13.613809669259277]]></description>
+        <styleUrl>#icon-1899-9C27B0</styleUrl>
+        <ExtendedData>
+          <Data name="Bezirk">
+            <value>Marzahn-Hellersdorf</value>
+          </Data>
+          <Data name="Schulnummer">
+            <value>10G36</value>
+          </Data>
+          <Data name="Schulart">
+            <value>Grundschule</value>
+          </Data>
+          <Data name="Adresse">
+            <value>Quedlinburger Str. 56, 12627 Berlin</value>
+          </Data>
+          <Data name="Telefonnummer">
+            <value>03023639720</value>
+          </Data>
+          <Data name="E-Mail">
+            <value>10G36@10G36.schule.berlin.de</value>
+          </Data>
+          <Data name="Breitengrad">
+            <value>5.2539998754037896E16</value>
+          </Data>
+          <Data name="Längengrad">
+            <value>13.613809669259277</value>
+          </Data>
+        </ExtendedData>
+      </Placemark>
+    </Folder>
+  </Document>
+</kml>

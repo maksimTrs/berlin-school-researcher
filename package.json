@@ -9,7 +9,8 @@
     "canary": "tsx src/cli.ts canary",
     "test:smoke": "vitest run tests/smoke",
     "typecheck": "tsc --noEmit",
-    "preflight": "tsx src/cli.ts preflight"
+    "preflight": "tsx src/cli.ts preflight",
+    "update:startchancen": "tsx src/cli.ts startchancen"
   },
   "license": "ISC",
   "type": "module",

@@ -9,6 +9,7 @@ import { firstLine, preflight } from './preflight.js';
 import { renderReport, type AddressResult, type SchoolEntry } from './report.js';
 import { Input, parseAddress, type AddressQuery } from './schema.js';
 import { scoreSchool, verdict } from './score.js';
+import { diffSchools, fetchStartchancen, saveSnapshot, startchancen } from './startchancen.js';
 
 const { positionals, values: args } = parseArgs({
   allowPositionals: true,
@@ -125,6 +126,7 @@ function summarize({ result: r, dir }: { result: AddressResult; dir: string | nu
     candidates: r.schools.filter((s) => s.role === 'candidate').map((s) => `${s.school.name} (${s.school.bsn})`),
     warnings: r.warnings,
     verdict: main ? verdict(scoreSchool(main.data)).text : null,
+    startchancen: main ? startchancen().schools.includes(main.school.bsn) : null,
     report: dir && join(dir, 'report.html'),
     result: dir && join(dir, 'result.json'),
   };
@@ -189,8 +191,40 @@ async function canaryCmd() {
     }
     if (main.data.screenshots.length !== 10) problems.push(`скриншотов ${main.data.screenshots.length}, ожидалось 10`);
   }
+  // снимок списка Startchancen в репозитории ещё совпадает с сайтом
+  const api = await newApi();
+  try {
+    const { added, removed } = diffSchools(startchancen().schools, await fetchStartchancen(api));
+    if (added.length || removed.length) {
+      problems.push(
+        `Startchancen: список изменился (+${added.join(', ') || '—'}; −${removed.join(', ') || '—'}) — запусти npm run update:startchancen и закоммить`,
+      );
+    }
+  } catch (e) {
+    problems.push(`Startchancen: ${firstLine(e)} — снимок config/startchancen.json не сверен`);
+  } finally {
+    await api.dispose();
+  }
   console.log(JSON.stringify({ ok: problems.length === 0, problems, summary: summarize({ result, dir }) }, null, 2));
   if (problems.length) process.exitCode = 1;
+}
+
+/** Перезаписывает снимок списка Startchancen с сайта; что изменилось — в stdout. */
+async function startchancenCmd() {
+  const api = await newApi();
+  try {
+    const live = await fetchStartchancen(api);
+    let before: string[] = [];
+    try {
+      before = startchancen().schools;
+    } catch {
+      // снимка нет или он испорчен — запишем с нуля
+    }
+    saveSnapshot(live);
+    console.log(JSON.stringify({ schools: live.length, ...diffSchools(before, live) }, null, 2));
+  } finally {
+    await api.dispose();
+  }
 }
 
 const commands: Record<string, () => Promise<void>> = {
@@ -198,10 +232,11 @@ const commands: Record<string, () => Promise<void>> = {
   lookup: lookupCmd,
   canary: canaryCmd,
   preflight: preflightCmd,
+  startchancen: startchancenCmd,
 };
 const cmd = commands[positionals[0]];
 if (!cmd) {
-  console.error('Использование: tsx src/cli.ts resolve|lookup|canary|preflight [--input f.json | --address "..."] [--headed --slowmo N --trace]');
+  console.error('Использование: tsx src/cli.ts resolve|lookup|canary|preflight|startchancen [--input f.json | --address "..."] [--headed --slowmo N --trace]');
   process.exit(2);
 }
 await cmd();

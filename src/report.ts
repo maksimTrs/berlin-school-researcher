@@ -4,6 +4,7 @@ import { formatAddress, type Candidate, type Catchment, type School } from './ge
 import type { SchoolData, YearPage } from './portrait.js';
 import type { AddressQuery } from './schema.js';
 import { EMOJI, scoreSchool, verdict } from './score.js';
+import { startchancen } from './startchancen.js';
 
 export type SchoolEntry = { school: School; role: 'main' | 'candidate' | 'neighbor'; data: SchoolData };
 
@@ -121,6 +122,14 @@ function scoreBlock(data: SchoolData, years: string[]): string {
   </div>`;
 }
 
+const inStartchancen = (s: School) => startchancen().schools.includes(s.bsn);
+
+function startchancenNote(s: School): string {
+  if (!inStartchancen(s)) return '';
+  return `<p>ℹ️ Школа в программе Startchancen: больше учеников из социально неблагополучных семей, дополнительные деньги и персонал.
+    <small>${link(startchancen().source, 'Список berlin.de')} на ${esc(startchancen().fetchedAt)}</small></p>`;
+}
+
 const ROLE: Record<SchoolEntry['role'], string> = { main: 'закреплённая', candidate: 'кандидат', neighbor: 'ближайшая' };
 
 // ---------- render ----------
@@ -147,7 +156,7 @@ export function renderReport(r: AddressResult): string {
         <tbody>${others
           .map(
             (o) => `<tr>
-              <th scope="row">${esc(o.school.name)} <small>${esc(o.school.bsn)}</small><br><small>${schoolLinks(o.school, o.data, addr, false)}</small></th>
+              <th scope="row">${esc(o.school.name)} <small>${esc(o.school.bsn)}${inStartchancen(o.school) ? ' · ℹ️ Startchancen' : ''}</small><br><small>${schoolLinks(o.school, o.data, addr, false)}</small></th>
               <td>${ROLE[o.role]}</td><td>${o.school.distanceM ?? '—'} м</td>
               ${KEY_FIGURES.map((k) => `<td>${figure(o.data, k)}</td>`).join('')}
             </tr>`,
@@ -233,6 +242,7 @@ ${
   <h2>Закреплённая школа · ${esc(main.school.bsn)}</h2>
   <div>${schoolLinks(main.school, main.data, addr, true)}</div>
   <p class="meta">Расстояние от адреса по прямой: ${main.school.distanceM ?? '—'} м</p>
+  ${startchancenNote(main.school)}
   ${scoreBlock(main.data, years)}
   <dl>${main.data.profile.fields.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
 </section>
