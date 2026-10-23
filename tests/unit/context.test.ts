@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  ContextSchema,
   Draft,
+  PlzContextSchema,
+  PlzDraft,
   findQuote,
   foreignNumbers,
   hasDate,
@@ -203,6 +206,26 @@ describe('verifyDraft', () => {
     expect(ctx.rejected.map((r) => r.reason)).toEqual(['даты 2025-06 нет в шапке документа']);
   });
 
+  it('a quote about a neighbouring school does not pass for this one', async () => {
+    const NAHARIYA = { bsn: '07G23', name: 'Nahariya-Grundschule' };
+    const buergelQuote = item({
+      category: 'welcome_classes',
+      published: '2026-02-18',
+      url: ANSWER_URL,
+      quote: 'Die überwiegende Anzahl der Schülerinnen und Schüler der jetzigen Willkommensklassen wird in die Regelklassen der Bruno-H.-Bürgel-Grundschule oder der umliegenden Grundschulen wechseln.',
+      summaryRu: 'Дети из Willkommensklassen переходят в обычные классы',
+    });
+    const nahariyaQuote = { ...buergelQuote, quote: 'Für die übrigen Schülerinnen und Schüler stehen Schulplätze in den Willkommensklassen der Nahariya-Grundschule zur Verfügung.' };
+    const forNahariya = await verifyDraft(draft('07G23', [buergelQuote, nahariyaQuote]), NAHARIYA, profile, fetchFixture, NOW);
+    expect(forNahariya.items.map((i) => i.quote)).toEqual([nahariyaQuote.quote]);
+    expect(forNahariya.rejected.map((r) => r.reason)).toEqual(['рядом с цитатой школа не названа']);
+    const forBuergel = await verifyDraft(draft('07G32', [nahariyaQuote]), BUERGEL, profile, fetchFixture, NOW);
+    expect(forBuergel.rejected.map((r) => r.reason)).toEqual(['рядом с цитатой школа не названа']);
+    // в пресс-релизе о Melli-Beese названа и Schule am Ginkobaum — цитата о стройке ей не засчитывается
+    const ginko = await verifyDraft(draft('09G07', [item({})]), { bsn: '09G07', name: 'Schule am Ginkobaum (Grundschule)' }, profile, fetchFixture, NOW);
+    expect(ginko.rejected.map((r) => r.reason)).toEqual(['рядом с цитатой школа не названа']);
+  });
+
   it('mirror page that is not an authority document, and redirects off the list, are rejected', async () => {
     const blog = 'https://gruene-fraktion-ts.de/blog/schule';
     const moved = 'https://www.berlin.de/ba-treptow-koepenick/moved.php';
@@ -261,7 +284,8 @@ describe('report', () => {
       category: 'welcome_classes',
       published: '2026-02-18',
       url: ANSWER_URL,
-      quote: 'Für die übrigen Schülerinnen und Schüler stehen Schulplätze in den Willkommensklassen der Nahariya-Grundschule zur Verfügung.',
+      quote:
+        'wird in die Regelklassen der Bruno-H.-Bürgel-Grundschule oder der umliegenden Grundschulen wechseln. Für die übrigen Schülerinnen und Schüler stehen Schulplätze in den Willkommensklassen der Nahariya-Grundschule zur Verfügung.',
       summaryRu: 'Новеньких без немецкого направляют в Nahariya-Grundschule',
       contradicts: OFFERS,
     });
@@ -285,6 +309,16 @@ describe('report', () => {
 });
 
 describe('PLZ', () => {
+  it('the same school twice in a draft is a schema error', () => {
+    const d = { bsn: '09G06', queries: ['q'], items: [] };
+    expect(() => PlzDraft.parse({ schools: [d, d] })).toThrow(/дважды/);
+  });
+
+  it('context.json of the wrong shape is rejected by the schema, not by the renderer', () => {
+    expect(() => PlzContextSchema.parse({})).toThrow();
+    expect(() => ContextSchema.parse({ bsn: '07G32', items: [] })).toThrow();
+  });
+
   const school: School = { ...MELLI, schulart: 'Grundschule', address: '', ortsteil: 'Johannisthal', bezirk: '', phone: null, email: null, web: null, lon: 13.5, lat: 52.4 };
   const other: School = { ...school, bsn: '09G07', name: 'Schule am Ginkobaum (Grundschule)' };
   const data = (bsn: string) => ({ bsn, portraitUrl: 'https://example.org', profile, pages: {}, inspections: [], screenshots: [] });

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
-import { Draft, PlzDraft, verifyDraft, type Context, type Fetched, type PlzContext } from './context.js';
+import { ContextSchema, Draft, PlzContextSchema, PlzDraft, sourceKind, verifyDraft, type Context, type Fetched, type PlzContext } from './context.js';
 import { KEY_FIGURES, keyFigure } from './extract.js';
 import { catchment, formatAddress, geocode, neighbors, plzZones, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
@@ -118,7 +118,7 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
     const result: AddressResult = { ...base, status: 'ok', address: addr, alternatives, catchment: c, schools, warnings };
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
     // проверенные факты прошлого прогона не теряются при повторном lookup; дата проверки — в отчёте
-    writeFileSync(join(dir, 'report.html'), renderReport(result, readContext(dir)));
+    writeFileSync(join(dir, 'report.html'), renderReport(result, readContext(dir, ContextSchema)));
     return { result, dir };
   } finally {
     await api.dispose();
@@ -126,11 +126,12 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
 }
 
 /** Испорченный context.json не должен стоить отчёта после полного прогона браузера — тогда без блока фактов. */
-function readContext<T = Context>(dir: string): T | null {
+function readContext<T>(dir: string, schema: { parse: (v: unknown) => T }): T | null {
   try {
-    return existsSync(join(dir, 'context.json')) ? JSON.parse(readFileSync(join(dir, 'context.json'), 'utf8')) : null;
+    return existsSync(join(dir, 'context.json')) ? schema.parse(JSON.parse(readFileSync(join(dir, 'context.json'), 'utf8'))) : null;
   } catch (e) {
-    console.warn(`${join(dir, 'context.json')}: не читается (${firstLine(e)}) — отчёт без фактов`);
+    const why = e instanceof SyntaxError ? firstLine(e) : 'структура не та, что пишет npm run context';
+    console.warn(`${join(dir, 'context.json')}: не читается (${why}) — отчёт без фактов`);
     return null;
   }
 }
@@ -151,22 +152,32 @@ async function contextCmd() {
   const raw = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
   const draftJson = JSON.parse(readFileSync(join(dir, 'context.draft.json'), 'utf8'));
   const api = await newApi();
+  // переадресации — вручную: каждый шаг должен оставаться в списке источников, а не уходить на любой адрес
   const fetchUrl = async (url: string): Promise<Fetched> => {
-    const res = await api.get(url, { maxRedirects: 5, maxRetries: 1 });
-    return { url: res.url(), status: res.status(), contentType: res.headers()['content-type'] ?? '', body: await res.body() };
+    let current = url;
+    for (let hop = 0; hop <= 5; hop++) {
+      const res = await api.get(current, { maxRedirects: 0, maxRetries: 1 });
+      const location = res.status() >= 300 && res.status() < 400 ? res.headers()['location'] : undefined;
+      if (!location) return { url: current, status: res.status(), contentType: res.headers()['content-type'] ?? '', body: await res.body() };
+      current = new URL(location, current).toString();
+      if (!sourceKind(current)) return { url: current, status: 200, contentType: '', body: Buffer.alloc(0) }; // verifyDraft отклонит
+    }
+    throw new Error('больше 5 переадресаций');
   };
   try {
     if ('zones' in raw) {
       const result = raw as PlzResult;
       const ctx: PlzContext = { schools: [] };
+      const skipped: { bsn: string; reason: string }[] = [];
       for (const d of PlzDraft.parse(draftJson).schools) {
+        // школа без Schulporträt (в warnings) или не из зон — пропускаем, остальные школы проверяем
         const s = result.schools.find((x) => x.school.bsn === d.bsn);
-        if (!s) throw new Error(`${d.bsn}: такой школы нет среди школ зон в result.json`);
-        ctx.schools.push(await verifyDraft(d, s.school, s.data.profile, fetchUrl, new Date(), config.context.plzMaxItemsPerSchool));
+        if (!s) skipped.push({ bsn: d.bsn, reason: 'нет среди школ с данными в result.json' });
+        else ctx.schools.push(await verifyDraft(d, s.school, s.data.profile, fetchUrl, new Date(), config.context.plzMaxItemsPerSchool));
       }
       writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
       writeFileSync(join(dir, 'report.html'), renderPlzReport(result, ctx));
-      console.log(JSON.stringify({ schools: ctx.schools.map(brief), report: join(dir, 'report.html') }, null, 2));
+      console.log(JSON.stringify({ schools: ctx.schools.map(brief), skipped, report: join(dir, 'report.html') }, null, 2));
       return;
     }
     const result = raw as AddressResult;
@@ -278,7 +289,7 @@ async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | n
 
     const result: PlzResult = { ...base, status: 'ok', addresses: total, zones, schools, warnings };
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
-    writeFileSync(join(dir, 'report.html'), renderPlzReport(result, readContext<PlzContext>(dir)));
+    writeFileSync(join(dir, 'report.html'), renderPlzReport(result, readContext(dir, PlzContextSchema)));
     return { result, dir };
   } finally {
     await api.dispose();

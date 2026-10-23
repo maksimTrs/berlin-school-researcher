@@ -45,21 +45,29 @@ export const Draft = z
 export type Draft = z.infer<typeof Draft>;
 
 /** Черновик по PLZ — по записи на каждую школу зон. */
-export const PlzDraft = z.object({ schools: z.array(Draft).min(1) }).strict();
+export const PlzDraft = z
+  .object({ schools: z.array(Draft).min(1) })
+  .strict()
+  .refine((d) => new Set(d.schools.map((s) => s.bsn)).size === d.schools.length, 'школа дважды в черновике');
 export type PlzDraft = z.infer<typeof PlzDraft>;
 
-export type ContextItem = DraftItem & { host: string; source: 'official' | 'mirror' };
-export type Rejected = { url: string; summaryRu: string; reason: string };
-export type Context = {
-  bsn: string;
-  checkedAt: string;
-  window: { publishedFrom: string; plannedTo: string };
-  queries: string[];
-  items: ContextItem[]; // от новых к старым
-  rejected: Rejected[];
-};
+const RejectedSchema = z.object({ url: z.string(), summaryRu: z.string(), reason: z.string() });
+// context.json пишет код; схема — чтобы повреждённый файл не ронял lookup и plz после прогона браузера
+export const ContextSchema = z.object({
+  bsn: z.string(),
+  checkedAt: z.string(),
+  window: z.object({ publishedFrom: z.string(), plannedTo: z.string() }),
+  queries: z.array(z.string()),
+  items: z.array(DraftItem.extend({ host: z.string(), source: z.enum(['official', 'mirror']) })), // от новых к старым
+  rejected: z.array(RejectedSchema),
+});
+export const PlzContextSchema = z.object({ schools: z.array(ContextSchema) });
 
-export type PlzContext = { schools: Context[] };
+export type Context = z.infer<typeof ContextSchema>;
+export type ContextItem = Context['items'][number];
+export type Rejected = z.infer<typeof RejectedSchema>;
+
+export type PlzContext = z.infer<typeof PlzContextSchema>;
 
 export type Fetched = { url: string; status: number; contentType: string; body: Buffer };
 
@@ -144,15 +152,34 @@ export function schoolKeys(s: Pick<School, 'bsn' | 'name'>): string[] {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// имена школ в тексте: «melli-beese-schule», «nahariya-grundschule», «schule am ginkobaum», номер «07g32»
+const ANY_SCHOOL = /(?<![\p{L}\d])(?:[\p{L}\d.]+-)+(?:grund|gemeinschafts|ober|sekundar|gesamt)?schule(?![\p{L}\d])|(?<![\p{L}\d])(?:grund)?schule (?:am|an der|an den|im|in der) [\p{L}-]+|(?<![\p{L}\d])\d{2}[a-z]\d{2}(?![\p{L}\d])/gu;
+
+type Mention = { start: number; end: number; ours: boolean };
+
+/** Все упоминания школ: свои — по ключам (отдельным словом, не школа другого типа), остальные — чужие. */
+function mentions(text: string, keys: string[]): Mention[] {
+  const own: Mention[] = keys.flatMap((k) =>
+    [...text.matchAll(new RegExp(`(?<![\\p{L}\\d])${escapeRe(k)}(?![\\p{L}\\d])(?![\\s-]*(ober|sekundar|gesamt)schule|[\\s-]*gymnasium)`, 'gu'))].map(
+      (m) => ({ start: m.index, end: m.index + m[0].length, ours: true }),
+    ),
+  );
+  const others = [...text.matchAll(ANY_SCHOOL)]
+    .map((m) => ({ start: m.index, end: m.index + m[0].length, ours: false }))
+    .filter((o) => !own.some((m) => m.start < o.end && o.start < m.end)); // «melli-beese-schule» — своя
+  return [...own, ...others].sort((a, b) => a.start - b.start);
+}
+
 /**
- * Школа названа рядом с цитатой — в документе обо всех школах округа цитата может быть про другую.
- * Имя — отдельным словом и не как имя школы другого типа («Kurt-Tucholsky-Oberschule»).
+ * Цитата — про эту школу: если в цитате названы школы, среди них есть эта; если нет — ближайшая школа,
+ * названная перед цитатой (не дальше 1500 знаков), — эта. В ответе обо всех школах округа соседняя не проходит.
  */
 export function mentionsSchool(text: string, at: { start: number; end: number }, keys: string[]): boolean {
-  const around = text.slice(Math.max(0, at.start - 1500), at.end + 1500);
-  return keys.some((k) =>
-    new RegExp(`(?<![\\p{L}\\d])${escapeRe(k)}(?![\\p{L}\\d])(?![\\s-]*(ober|sekundar|gesamt)schule|[\\s-]*gymnasium)`, 'u').test(around),
-  );
+  const all = mentions(text, keys);
+  const inside = all.filter((m) => m.start >= at.start && m.end <= at.end);
+  if (inside.length) return inside.some((m) => m.ours);
+  const before = all.filter((m) => m.end <= at.start && at.start - m.end <= 1500).at(-1);
+  return before?.ours ?? false;
 }
 
 const MONTHS = ['januar', 'februar', 'märz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember'];
