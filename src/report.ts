@@ -124,10 +124,23 @@ function scoreBlock(data: SchoolData, years: string[]): string {
 
 const inStartchancen = (s: School) => startchancen().schools.includes(s.bsn);
 
+// критерии отбора и что получает школа — по FAQ berlin.de (проверено 2026-10-23)
+const STARTCHANCEN_FAQ = 'https://www.berlin.de/sen/bildung/unterstuetzung/startchancen-programm/faq/';
+
 function startchancenNote(s: School): string {
-  if (!inStartchancen(s)) return '';
-  return `<p>ℹ️ Школа в программе Startchancen: больше учеников из социально неблагополучных семей, дополнительные деньги и персонал.
-    <small>${link(startchancen().source, 'Список berlin.de')} на ${esc(startchancen().fetchedAt)}</small></p>`;
+  const source = `<small>${link(startchancen().source, 'Список berlin.de')} на ${esc(startchancen().fetchedAt)}</small>`;
+  if (!inStartchancen(s)) return `<p class="note">ℹ️ Не в программе Startchancen. ${source}</p>`;
+  return `<div class="startchancen">
+    <p>🔶 <b>Школа в программе Startchancen</b>: больше учеников из социально неблагополучных семей, дополнительные деньги и персонал. ${source}</p>
+    <details><summary>Что это значит</summary>
+      <p>Программа Bund и Länder для школ «в сложной социальной ситуации»: с августа 2024 года, на 10 лет.</p>
+      <p>Школы отбирали по доле учеников из семей с правом на бесплатные учебники или Bildung und Teilhabe (низкий доход),
+        доле учеников неродного немецкого происхождения, инклюзии, доле второгодников, статус-индексу района и результатам VERA.
+        Неродной немецкий и иностранное гражданство этой школы — в ключевых цифрах ниже.</p>
+      <p>Школа получает деньги на здание, свой бюджет на развитие и дополнительный персонал (multiprofessionelle Teams: соцработники, работа с семьями).</p>
+      <p>${link(STARTCHANCEN_FAQ, 'FAQ berlin.de: критерии отбора')}</p>
+    </details>
+  </div>`;
 }
 
 const ROLE: Record<SchoolEntry['role'], string> = { main: 'закреплённая', candidate: 'кандидат', neighbor: 'ближайшая' };
@@ -156,7 +169,7 @@ export function renderReport(r: AddressResult): string {
         <tbody>${others
           .map(
             (o) => `<tr>
-              <th scope="row">${esc(o.school.name)} <small>${esc(o.school.bsn)}${inStartchancen(o.school) ? ' · ℹ️ Startchancen' : ''}</small><br><small>${schoolLinks(o.school, o.data, addr, false)}</small></th>
+              <th scope="row">${esc(o.school.name)} <small>${esc(o.school.bsn)}${inStartchancen(o.school) ? ' · 🔶 Startchancen' : ''}</small><br><small>${schoolLinks(o.school, o.data, addr, false)}</small></th>
               <td>${ROLE[o.role]}</td><td>${o.school.distanceM ?? '—'} м</td>
               ${KEY_FIGURES.map((k) => `<td>${figure(o.data, k)}</td>`).join('')}
             </tr>`,
@@ -225,6 +238,7 @@ dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywher
 details { border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; background: var(--surface); }
 summary { cursor: pointer; font-weight: 600; }
 details img { display: block; margin-top: 8px; max-width: 100%; height: auto; }
+.startchancen details p { margin: 8px 0 0; }
 @media (max-width: 560px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } }
 </style>
 <main>
