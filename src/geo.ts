@@ -314,24 +314,19 @@ export async function plzZones(api: APIRequestContext, q: PlzQuery): Promise<{ t
   const all = await primarySchools(api);
   return {
     total: addrs.length,
-    zones: groupByZone(addrs, zones).map(({ zone, addrs }) => {
+    zones: groupByZone(addrs, zones).map(({ zone, addrs }) => ({
+      esb: zone.properties.esb,
+      esbText: zone.properties.esb_text ?? null,
       // «ближайшие» для зоны без школы — к центру её адресов в этом PLZ
-      const { status, schools } = assignSchool(
+      ...assignSchool(
         zone.properties.esb,
         all.filter((s) => inGeometry([s.lon, s.lat], zone.geometry)),
         all,
         { lon: mean(addrs.map((a) => a.lon)), lat: mean(addrs.map((a) => a.lat)) },
         config.esbOverrides,
-      );
-      return {
-        esb: zone.properties.esb,
-        esbText: zone.properties.esb_text ?? null,
-        status,
-        // в таблице зон PLZ нет роли «кандидат» — без выбранной пометки остальные школы читались бы как равные ей
-        schools: status === 'matched_by_code' ? schools.slice(0, 1) : schools,
-        addresses: addrs.length,
-        streets: streetsOf(addrs),
-      };
-    }),
+      ),
+      addresses: addrs.length,
+      streets: streetsOf(addrs),
+    })),
   };
 }

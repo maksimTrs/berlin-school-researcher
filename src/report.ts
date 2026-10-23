@@ -416,7 +416,7 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null): st
           .map(
             (s, i) => `<tr>
               ${i === 0 ? `<th scope="row" rowspan="${z.schools.length}">${esc(z.esb)}<br><small>${z.addresses} · ${share(z.addresses, r.addresses)}</small>${st.warn ? `<br><small class="bad">⚠️ ${esc(st.text)}</small>` : ''}</th>` : ''}
-              <td>${esc(schoolName(s))} <small>${esc(s.bsn)}${inStartchancen(s) ? ' · 🔶 Startchancen' : ''}</small><br>${marker(s)}</td>
+              <td>${z.status === 'matched_by_code' ? `<small>${i === 0 ? 'вероятно закреплённая' : 'кандидат'}</small><br>` : ''}${esc(schoolName(s))} <small>${esc(s.bsn)}${inStartchancen(s) ? ' · 🔶 Startchancen' : ''}</small><br>${marker(s)}</td>
             </tr>`,
           )
           .join('');

@@ -552,6 +552,13 @@ describe('PLZ', () => {
     'Insgesamt sollen alle Arbeiten bis 2029 abgeschlossen sein.',
   ];
 
+  it('zone matched by code: the probable school and the other schools of the zone as candidates', () => {
+    const html = renderPlzReport({ ...result, zones: [{ ...result.zones[0], status: 'matched_by_code', schools: [school, other] }] });
+    expect(html).toContain('<small>вероятно закреплённая</small><br>Melli-Beese-Schule');
+    expect(html).toContain('<small>кандидат</small><br>Schule am Ginkobaum');
+    expect(renderPlzReport(result)).not.toContain('вероятно закреплённая');
+  });
+
   it('at most 3 facts per school; facts inside the block of their school; no context.json — report unchanged', async () => {
     const items = quotes.map((quote, i) => item({ quote, category: i < 2 ? 'construction' : 'capacity', summaryRu: 'Пристройка и места в школе' }));
     const melli = await verifyDraft(draft('09G06', items), MELLI, profile, fetchFixture, NOW, 3);

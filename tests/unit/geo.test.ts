@@ -60,9 +60,9 @@ describe('plzZones', () => {
     expect(r.zones[0].streets).toEqual([{ street: 'Am Wald', houses: ['1'] }]);
   });
 
-  it('matched_by_code zone lists only the matched school', async () => {
+  it('matched_by_code zone: the matched school first, the other schools of the zone kept', async () => {
     const r = await plzZones(fakeApi(layers([address('Am Wald', 1, 13.4)])), { plz: '12357' });
-    expect(r.zones.map((z) => [z.status, z.schools.map((s) => s.bsn)])).toEqual([['matched_by_code', ['01G10']]]);
+    expect(r.zones.map((z) => [z.status, z.schools.map((s) => s.bsn)])).toEqual([['matched_by_code', ['01G10', '01G01']]]);
   });
 });
 
