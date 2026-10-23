@@ -11,6 +11,7 @@ import {
   fetchFollowing,
   findQuote,
   foreignNumbers,
+  inQuestion,
   isDocumentDate,
   mentionsSchool,
   normalize,
@@ -27,7 +28,7 @@ import type { Profile } from '../../src/extract.js';
 import type { Catchment, School } from '../../src/geo.js';
 import { renderPlzReport, renderReport, type AddressResult, type PlzResult } from '../../src/report.js';
 
-// реальные источники: пресс-релиз округа (berlin.de) и ответ Bezirksamt на запрос в BVV (копия на сайте фракции)
+// реальные источники: пресс-релиз округа (berlin.de), ответ Bezirksamt на запрос в BVV (копия на сайте фракции), ответ Senat в Abgeordnetenhaus (context_pardok_07G32.pdf)
 const PRESS_URL = 'https://www.berlin.de/ba-treptow-koepenick/aktuelles/pressemitteilungen/2026/pressemitteilung.1687371.php';
 const ANSWER_URL = 'https://gruene-fraktion-ts.de/wp-content/uploads/2026/02/Antwort-auf-die-MA-2_Zander-Rade_Struktureller-Raummangel-an-Schulen_final.pdf';
 const fixture = (name: string) => readFileSync(new URL(`../fixtures/${name}`, import.meta.url));
@@ -367,6 +368,33 @@ describe('verifyDraft', () => {
 
   it('draft for another school is an error, not an empty block', async () => {
     await expect(verifyDraft(draft('07G32', []), MELLI, profile, fetchFixture, NOW)).rejects.toThrow(/09G06/);
+  });
+
+  it("a quote from the deputy's question is not a fact, the authority's answer is", async () => {
+    const ask = (quote: string) => item({ category: 'capacity', published: '2026-02-18', url: ANSWER_URL, quote, summaryRu: 'Нехватка помещений в школе' });
+    const ctx = await verifyDraft(
+      draft('07G32', [
+        ask('bislang weder Container noch andere geeignete Unterrichtsräume zur Verfügung stehen'), // вопрос фракции
+        ask('nach Rücksprache mit der Schulleitung der Bruno-H.-Bürgel-Grundschule wird die Schule allen Schülerinnen und Schülern einen ordnungsgemäßen Schulunterricht anbieten können'),
+      ]),
+      BUERGEL,
+      profile,
+      fetchFixture,
+      NOW,
+    );
+    expect(ctx.items.map((i) => i.quote)).toEqual([expect.stringMatching(/^nach Rücksprache/)]);
+    expect(ctx.rejected.map((r) => r.reason)).toEqual(['цитата из вопроса депутата, а не из ответа ведомства']);
+  });
+
+  it('inQuestion: Abgeordnetenhaus answer — questions «1. … ?» before «Zu 1. und 2.:»', async () => {
+    const text = normalize(await pageText({ contentType: 'application/pdf', body: fixture('context_pardok_07G32.pdf') }));
+    const isQuestion = (quote: string) => inQuestion(text, findQuote(text, quote)!);
+    expect(isQuestion('für das Jahr 2026 innerhalb des Bezirksamtes abgestimmt und damit vorgesehen worden ist')).toBe(true);
+    expect(isQuestion('nicht in die Arbeitsplanung 2026 aufgenommen werden konnte')).toBe(false);
+    expect(isQuestion('die äußeren Rahmenbedingungen für das Lehren und Lernen in der Schule zu schaffen')).toBe(false); // Vorbemerkung
+    // без маркеров ответа вопросов нет: «1. Juni» и нумерованный список в пресс-релизе — не вопрос
+    const press = normalize('Pressemitteilung vom 1. Juni 2026. 1. Der Erweiterungsbau wird bis 2027 fertig.');
+    expect(inQuestion(press, findQuote(press, 'Der Erweiterungsbau wird bis 2027 fertig.')!)).toBe(false);
   });
 });
 

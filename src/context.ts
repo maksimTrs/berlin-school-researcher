@@ -199,6 +199,25 @@ export function mentionsSchool(text: string, at: { start: number; end: number },
   return before?.ours ?? false;
 }
 
+// маркер ответа: «Antwort auf 1. Frage», «Antwort auf die 2. Nachfrage» (BVV), «Zu 1.:», «Zu 1. und 2.:», «Zu 3. bis 5.:» (Abgeordnetenhaus)
+const ANSWER = /antwort auf (?:die )?(\d+)\. (?:nach)?frage|(?<![\p{L}\d])zu (?:frage )?(\d+)\.?(?:(?:,| und| bis| -) ?\d+\.?)*:/gu;
+
+/**
+ * Цитата из вопроса депутата, а не из ответа ведомства: вопрос — от «N.» до маркера ответа на него
+ * («1. Frage … Antwort auf 1. Frage», «1. … ? 2. … ? Zu 1. und 2.:»). Нет маркеров ответа — нет и вопросов.
+ */
+export function inQuestion(text: string, at: { start: number; end: number }): boolean {
+  let prevEnd = 0;
+  for (const m of text.matchAll(ANSWER)) {
+    // «1. » — начало вопроса, но не «1. Juni» и не «1. 2.»
+    const start = new RegExp(`(?<![\\p{L}\\d.])${m[1] ?? m[2]}\\. (?!(${MONTHS.join('|')}|maerz|\\d))`, 'gu');
+    const q = [...text.slice(prevEnd, m.index).matchAll(start)].at(-1);
+    if (q && prevEnd + q.index < at.end && at.start < m.index) return true;
+    prevEnd = m.index + m[0].length;
+  }
+  return false;
+}
+
 const MONTHS = ['januar', 'februar', 'märz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember'];
 
 const MONTH_NAME = `(?<!\\p{L})(${MONTHS.join('|')}|maerz)(?!\\p{L})`;
@@ -394,6 +413,10 @@ export async function verifyDraft(
     const at = findQuote(page.text, item.quote);
     if (!at) {
       reject('цитаты нет в источнике дословно');
+      continue;
+    }
+    if (inQuestion(page.text, at)) {
+      reject('цитата из вопроса депутата, а не из ответа ведомства');
       continue;
     }
     if (!mentionsSchool(page.text, at, keys)) {
