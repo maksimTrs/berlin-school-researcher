@@ -1,7 +1,8 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
+import { ContextSchema, Draft, PlzContextSchema, PlzDraft, sourceKind, verifyDraft, type Context, type Fetched, type PlzContext } from './context.js';
 import { KEY_FIGURES, keyFigure } from './extract.js';
 import { catchment, formatAddress, geocode, neighbors, plzZones, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
@@ -27,6 +28,7 @@ const { positionals, values: args } = parseArgs({
     address: { type: 'string' },
     plz: { type: 'string' },
     street: { type: 'string' },
+    dir: { type: 'string' },
     out: { type: 'string', default: 'out' },
     headed: { type: 'boolean', default: false },
     slowmo: { type: 'string', default: '0' },
@@ -115,8 +117,76 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
 
     const result: AddressResult = { ...base, status: 'ok', address: addr, alternatives, catchment: c, schools, warnings };
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
-    writeFileSync(join(dir, 'report.html'), renderReport(result));
+    // проверенные факты прошлого прогона не теряются при повторном lookup; дата проверки — в отчёте
+    writeFileSync(join(dir, 'report.html'), renderReport(result, readContext(dir, ContextSchema)));
     return { result, dir };
+  } finally {
+    await api.dispose();
+  }
+}
+
+/** Испорченный context.json не должен стоить отчёта после полного прогона браузера — тогда без блока фактов. */
+function readContext<T>(dir: string, schema: { parse: (v: unknown) => T }): T | null {
+  try {
+    return existsSync(join(dir, 'context.json')) ? schema.parse(JSON.parse(readFileSync(join(dir, 'context.json'), 'utf8'))) : null;
+  } catch (e) {
+    const why = e instanceof SyntaxError ? firstLine(e) : 'структура не та, что пишет npm run context';
+    console.warn(`${join(dir, 'context.json')}: не читается (${why}) — отчёт без фактов`);
+    return null;
+  }
+}
+
+const brief = (ctx: Context) => ({
+  bsn: ctx.bsn,
+  items: ctx.items.map(({ category, published, planned, summaryRu, url }) => ({ category, published, planned, summaryRu, url })),
+  rejected: ctx.rejected,
+});
+
+/**
+ * Черновик Claude (context.draft.json) → каждый источник скачан и сверен → context.json и report.html заново.
+ * Папка lookup — одна закреплённая школа; папка plz — по черновику на каждую школу зон.
+ */
+async function contextCmd() {
+  if (!args.dir) throw new Error('Нужен --dir out/<адрес> — папка отчёта из lookup или plz');
+  const dir = resolve(args.dir);
+  const raw = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
+  const draftJson = JSON.parse(readFileSync(join(dir, 'context.draft.json'), 'utf8'));
+  const api = await newApi();
+  // переадресации — вручную: каждый шаг должен оставаться в списке источников, а не уходить на любой адрес
+  const fetchUrl = async (url: string): Promise<Fetched> => {
+    let current = url;
+    for (let hop = 0; hop <= 5; hop++) {
+      const res = await api.get(current, { maxRedirects: 0, maxRetries: 1 });
+      const location = res.status() >= 300 && res.status() < 400 ? res.headers()['location'] : undefined;
+      if (!location) return { url: current, status: res.status(), contentType: res.headers()['content-type'] ?? '', body: await res.body() };
+      current = new URL(location, current).toString();
+      if (!sourceKind(current)) return { url: current, status: 200, contentType: '', body: Buffer.alloc(0) }; // verifyDraft отклонит
+    }
+    throw new Error('больше 5 переадресаций');
+  };
+  try {
+    if ('zones' in raw) {
+      const result = raw as PlzResult;
+      const ctx: PlzContext = { schools: [] };
+      const skipped: { bsn: string; reason: string }[] = [];
+      for (const d of PlzDraft.parse(draftJson).schools) {
+        // школа без Schulporträt (в warnings) или не из зон — пропускаем, остальные школы проверяем
+        const s = result.schools.find((x) => x.school.bsn === d.bsn);
+        if (!s) skipped.push({ bsn: d.bsn, reason: 'нет среди школ с данными в result.json' });
+        else ctx.schools.push(await verifyDraft(d, s.school, s.data.profile, fetchUrl, new Date(), config.context.plzMaxItemsPerSchool));
+      }
+      writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
+      writeFileSync(join(dir, 'report.html'), renderPlzReport(result, ctx));
+      console.log(JSON.stringify({ schools: ctx.schools.map(brief), skipped, report: join(dir, 'report.html') }, null, 2));
+      return;
+    }
+    const result = raw as AddressResult;
+    const main = result.schools[0];
+    if (result.status !== 'ok' || !main) throw new Error(`${dir}: в result.json нет закреплённой школы`);
+    const ctx = await verifyDraft(Draft.parse(draftJson), main.school, main.data.profile, fetchUrl);
+    writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
+    writeFileSync(join(dir, 'report.html'), renderReport(result, ctx));
+    console.log(JSON.stringify({ ...brief(ctx), report: join(dir, 'report.html') }, null, 2));
   } finally {
     await api.dispose();
   }
@@ -219,7 +289,7 @@ async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | n
 
     const result: PlzResult = { ...base, status: 'ok', addresses: total, zones, schools, warnings };
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
-    writeFileSync(join(dir, 'report.html'), renderPlzReport(result));
+    writeFileSync(join(dir, 'report.html'), renderPlzReport(result, readContext(dir, PlzContextSchema)));
     return { result, dir };
   } finally {
     await api.dispose();
@@ -328,6 +398,7 @@ const commands: Record<string, () => Promise<void>> = {
   resolve: resolveCmd,
   lookup: lookupCmd,
   plz: plzCmd,
+  context: contextCmd,
   canary: canaryCmd,
   preflight: preflightCmd,
   startchancen: startchancenCmd,
@@ -335,7 +406,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = commands[positionals[0]];
 if (!cmd) {
   console.error(
-    'Использование: tsx src/cli.ts resolve|lookup|plz|canary|preflight|startchancen [--input f.json | --address "..." | --plz 10439 [--street "..."]] [--headed --slowmo N --trace]',
+    'Использование: tsx src/cli.ts resolve|lookup|plz|context|canary|preflight|startchancen [--input f.json | --address "..." | --plz 10439 [--street "..."] | --dir out/<адрес>] [--headed --slowmo N --trace]',
   );
   process.exit(2);
 }

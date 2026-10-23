@@ -20,7 +20,7 @@
 
 ## Настройка один раз
 
-**Локально** (Node 22+):
+**Локально** (Node 22.13+):
 
 ```bash
 npm ci
@@ -90,11 +90,13 @@ flowchart TD
 
     subgraph H["Claude: только края"]
         S["skill /school<br/>разбор ввода → input.json"]
+        F["поиск фактов о школе<br/>→ context.draft.json"]
         P["публикация artifact<br/>итог в чат: школа · маркер · Startchancen"]
     end
 
     S -->|"npm run resolve"| G
     S -->|"npm run lookup"| G
+    F -->|"npm run context"| CX
 
     subgraph C["Код src/ — детерминированный"]
         G["geo.ts<br/>адрес → зона → школа → соседи"]
@@ -102,21 +104,25 @@ flowchart TD
         E["extract.ts<br/>HTML → таблицы, год, Daten-Stand, н/д"]
         SC["score.ts<br/>маркер 🟢🟡🔴: отмены и учителя по годам"]
         SN["startchancen.ts<br/>снимок config/startchancen.json"]
+        CX["context.ts<br/>скачать источник · сверить цитату, дату, школу, период"]
         R["report.ts<br/>result.json → report.html"]
         G --> PT --> E --> R
         E --> SC --> R
         SN --> R
+        CX --> R
     end
 
     W[("gdi.berlin.de WFS<br/>adressen_berlin · esb_2026 · schulen")] --> G
     B[("bildung.berlin.de<br/>Schulporträt")] --> PT
     M[("berlin.de<br/>карта школ Startchancen (KML)")] -.->|"update:startchancen · сверка в canary"| SN
 
-    R --> O["out/адрес/<br/>result.json · report.html · screens/*.png"]
+    D[("berlin.de · pardok.parlament-berlin.de<br/>пресс-релизы, ответы на запросы")] --> CX
+
+    R --> O["out/адрес/<br/>result.json · context.json · report.html · screens/*.png"]
     O --> P
 ```
 
-Принцип: Claude разбирает нечёткий ввод и публикует отчёт; цифры извлекает и рендерит код. Нет данных на сайте → «н/д — нет данных на сайте за <год>», без досчёта.
+Принцип: Claude разбирает нечёткий ввод и публикует отчёт; цифры извлекает и рендерит код. Нет данных на сайте → «н/д — нет данных на сайте за <год>», без досчёта. Факты из внешних источников Claude только находит; в отчёт попадает то, что код нашёл дословно в документе ведомства.
 
 Как школа находится по адресу: точка адреса → зона Einschulbereich (слой `esb_2026`) → публичная Grundschule/Gemeinschaftsschule внутри зоны. Официального сопоставления «зона → школа» в WFS нет, поэтому оно пространственное:
 
@@ -133,13 +139,14 @@ flowchart TD
 
 | Файл | Что делает |
 |---|---|
-| `src/cli.ts` | команды `resolve`, `lookup`, `canary`, `preflight`, `startchancen`; сбой одного адреса не останавливает остальные |
+| `src/cli.ts` | команды `resolve`, `lookup`, `plz`, `context`, `canary`, `preflight`, `startchancen`; сбой одного адреса не останавливает остальные |
 | `src/preflight.ts` | проверка критичных источников до запуска браузера |
 | `src/geo.ts` | WFS: адрес, зона, выбор школы, соседи |
 | `src/portrait.ts` | браузер, поиск школы по номеру, загрузка подстраниц, скриншоты |
 | `src/extract.ts` | список подстраниц (`PAGES`) и ключевых цифр (`KEY_FIGURES`) — новая метрика = новая строка |
 | `src/score.ts` | маркер 🟢🟡🔴 за 3 года: отмены уроков хуже средней по типу школ, дефицит учительских часов — в начале отчёта и в итоге в чат |
 | `src/startchancen.ts` | школа в программе Startchancen — по снимку `config/startchancen.json` |
+| `src/context.ts` | факты о школе из официальных источников: Claude находит, код скачивает документ и оставляет только дословные цитаты с датой и названием школы рядом; не больше 5 фактов, 2 на тему |
 | `src/report.ts` | HTML-отчёт |
 | `config/config.json` | слой зон, число лет, соседей, адресов, адрес для canary |
 | `.claude/skills/school/SKILL.md` | что делает Claude по `/school` |
@@ -150,6 +157,7 @@ flowchart TD
 |---|---|
 | `npm run resolve -- --address "Kastanienallee 12"` | только адрес → кандидаты, без браузера |
 | `npm run lookup -- --input input.json` | полный прогон по файлу адресов (формат — в `SKILL.md`) |
+| `npm run context -- --dir out/<адрес>` | проверить `context.draft.json` по самим документам → `context.json` и заново `report.html`; для папки `plz-…` — по каждой школе зон, до 3 фактов на школу |
 | `npm run canary` | эталонный адрес проходит весь путь; при поломке сайта называет подстраницу и поле; сверяет снимок Startchancen с berlin.de |
 | `npm run update:startchancen` | перезаписать снимок списка Startchancen (если `canary` сказал, что список изменился) и закоммитить |
 | `npm run preflight` | доступны ли критичные источники; `lookup` и `canary` проверяют это сами и при сбое не запускаются (exit code 2) |

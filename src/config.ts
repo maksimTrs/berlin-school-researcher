@@ -11,6 +11,17 @@ const Config = z.object({
   viewport: z.object({ width: z.number(), height: z.number() }),
   // ручные поправки «код зоны → bsn школы» из PDF района; приоритет над пространственным сопоставлением
   esbOverrides: z.record(z.string(), z.string()),
+  // факты из официальных источников в начале отчёта (src/context.ts)
+  context: z.object({
+    pastMonths: z.number().int().min(1), // публикации не старше
+    futureMonths: z.number().int().min(0), // план, который наступит не позже
+    plannedMaxAgeMonths: z.number().int().min(1), // …но и сам план объявлен не раньше
+    maxItems: z.number().int().min(1),
+    plzMaxItemsPerSchool: z.number().int().min(1), // в отчёте по PLZ школ несколько — фактов на каждую меньше
+    maxPerCategory: z.number().int().min(1),
+    officialSources: z.array(z.string()).min(1), // «домен[/начало пути]», домен — с поддоменами
+    mirrorHosts: z.array(z.string()), // сайты фракций с копиями официальных ответов
+  }),
 });
 
 export const config = Config.parse(
