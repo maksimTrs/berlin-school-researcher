@@ -1,5 +1,7 @@
 # berlin-school-researcher
 
+[![CI](https://github.com/maksimTrs/berlin-school-researcher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/maksimTrs/berlin-school-researcher/actions/workflows/ci.yml)
+
 Адрес квартиры в Берлине → закреплённая начальная школа (Einschulbereich) → показатели Schulporträt за 3 учебных года → HTML-отчёт со скриншотами, ссылками на Google Maps и отчёты инспекции.
 
 Показатели: отмены уроков, обеспеченность учителями, персонал, пропуски, иностранное гражданство, неродной немецкий, размер школы, откуда ученики. Источники открытые, ключи API не нужны: WFS Берлина (`gdi.berlin.de`) и [Schulverzeichnis](https://www.bildung.berlin.de/Schulverzeichnis/).
