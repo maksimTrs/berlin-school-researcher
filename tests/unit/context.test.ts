@@ -5,10 +5,12 @@ import {
   findQuote,
   foreignNumbers,
   hasDate,
+  mentionsSchool,
   normalize,
   outOfWindow,
   pageText,
   schoolKeys,
+  sourceKind,
   verifyDraft,
   type DraftItem,
   type Fetched,
@@ -60,6 +62,8 @@ describe('normalize / findQuote', () => {
     expect(findQuote(text, 'wird die Melli-Beese-Schule zu einer 3,5-zügigen Grundschule ausgebaut … Weil in den kommenden Jahren')).toBeNull();
     expect(findQuote(text, 'wird die Melli-Beese-Schule zu einer 4-zügigen Grundschule ausgebaut.')).toBeNull();
     expect(findQuote(text, 'kurz … zu kurze Teile')).toBeNull();
+    // «…» не склеивает фразы из разных абзацев: так можно перевернуть смысл
+    expect(findQuote(text, 'Weil in den kommenden Jahren … Insgesamt sollen alle Arbeiten bis 2029 abgeschlossen sein.')).toBeNull();
   });
 
   it('pageText reads the PDF answer', async () => {
@@ -74,6 +78,17 @@ describe('checks', () => {
     expect(schoolKeys(BUERGEL)).toEqual(['07g32', 'bruno-h.-bürgel']);
     expect(schoolKeys({ bsn: '07G10', name: 'Schule am Ginkobaum (Grundschule)' })).toEqual(['07g10', 'am ginkobaum']);
     expect(schoolKeys({ bsn: '09G34', name: '34. Schule' })).toEqual(['09g34', '34. schule']);
+    // одно слово слишком общее — полное имя
+    expect(schoolKeys({ bsn: '07G01', name: 'Schöneberger Grundschule' })).toEqual(['07g01', 'schöneberger grundschule']);
+  });
+
+  it('mentionsSchool: whole word, not a school of another type', () => {
+    const at = (text: string) => ({ start: 0, end: text.length });
+    const has = (text: string, name: string) => mentionsSchool(normalize(text), at(text), schoolKeys({ bsn: '01G99', name }));
+    expect(has('Die Grundschule am Schlosspark bekommt Container.', 'Grundschule am Schloss')).toBe(false);
+    expect(has('An der Kurt-Tucholsky-Oberschule fehlen Räume.', 'Kurt-Tucholsky-Grundschule')).toBe(false);
+    expect(has('An der Kurt-Tucholsky-Schule fehlen Räume.', 'Kurt-Tucholsky-Grundschule')).toBe(true);
+    expect(has('Bezirk Tempelhof-Schöneberger Schulen: Raummangel.', 'Schöneberger Grundschule')).toBe(false);
   });
 
   it('hasDate: day and month precision', () => {
@@ -89,6 +104,31 @@ describe('checks', () => {
   it('foreignNumbers: the one-liner adds no numbers', () => {
     expect(foreignNumbers('расширят до 3,5 классов к 2027', 'zu einer 3,5-zügigen … Mitte 2027')).toEqual([]);
     expect(foreignNumbers('расширят до 4 классов', 'zu einer 3,5-zügigen')).toEqual(['4']);
+  });
+
+  it('outOfWindow: month by Berlin time', () => {
+    // 00:30 1 ноября в Берлине — по UTC ещё 31 октября
+    expect(outOfWindow({ published: '2026-11-01', planned: null }, new Date('2026-10-31T23:30:00Z'))).toBeNull();
+  });
+
+  it('sourceKind: berlin.de only district and Senate pages, not agency news', () => {
+    expect(sourceKind(PRESS_URL)).toBe('official');
+    expect(sourceKind('https://www.berlin.de/sen/bildung/schule/')).toBe('official');
+    expect(sourceKind('https://www.berlin.de/aktuelles/berlin/1234-dpa-schule.php')).toBeNull();
+    expect(sourceKind('https://pardok.parlament-berlin.de/starweb/adis/citat/VT/19/SchrAnfr/S19-26268.pdf')).toBe('official');
+    expect(sourceKind('https://berlin.de.example.org/ba-x/')).toBeNull();
+  });
+
+  it('Draft: impossible date is a schema error', () => {
+    expect(() => draft('09G06', [item({ published: '2026-02-31' })])).toThrow(/нет такой даты/);
+  });
+
+  it('pageText: charset from Content-Type, main content only, hidden blocks dropped', async () => {
+    const body = Buffer.from('<nav>Menü 01.01.2026</nav><main>Bürgel <div hidden>versteckt</div></main>', 'latin1');
+    const text = await pageText({ contentType: 'text/html; charset=ISO-8859-1', body });
+    expect(text).toContain('Bürgel');
+    expect(text).not.toContain('Menü');
+    expect(text).not.toContain('versteckt');
   });
 
   it('outOfWindow: 12 months back, plans within 6 months ahead', () => {
@@ -129,8 +169,8 @@ describe('verifyDraft', () => {
     expect(ctx.rejected.map((r) => r.reason)).toEqual([
       'цитаты нет в источнике дословно',
       'в однострочнике числа, которых нет в цитате: 20',
-      'даты 2026-06-30 нет в источнике',
-      'сайт www.entwicklungsstadt.de не в списке официальных (config.context)',
+      'даты 2026-06-30 нет в шапке документа',
+      'www.entwicklungsstadt.de/richtfest-an-der-melli-beese-schule/: не в списке официальных источников (config.context)',
       'источник не загрузился: getaddrinfo ENOTFOUND',
     ]);
     expect(ctx.window).toEqual({ publishedFrom: '2025-10', plannedTo: '2027-04' });
@@ -157,15 +197,25 @@ describe('verifyDraft', () => {
     expect(noField.rejected.map((r) => r.reason)).toEqual(['в профиле нет поля «Кружки»']);
   });
 
+  it('date only in the body text (a plan), not in the header, is rejected', async () => {
+    // «Nach der Grundsteinlegung im Juni 2025» — в середине пресс-релиза от 29.06.2026
+    const ctx = await verifyDraft(draft('09G06', [item({ published: '2025-06' })]), MELLI, profile, fetchFixture, new Date('2026-06-30T12:00:00Z'));
+    expect(ctx.rejected.map((r) => r.reason)).toEqual(['даты 2025-06 нет в шапке документа']);
+  });
+
   it('mirror page that is not an authority document, and redirects off the list, are rejected', async () => {
     const blog = 'https://gruene-fraktion-ts.de/blog/schule';
-    const moved = 'https://www.berlin.de/moved.php';
+    const moved = 'https://www.berlin.de/ba-treptow-koepenick/moved.php';
     const pages: Record<string, Fetched> = {
       [blog]: { url: blog, status: 200, contentType: 'text/html', body: Buffer.from('<p>Unsere Meinung: Die Fertigstellung des Erweiterungsbaus ist für Mitte 2027 geplant. 29.06.2026 Melli-Beese</p>') },
       [moved]: { ...PAGES[PRESS_URL], url: 'https://example.org/press' },
     };
     const ctx = await verifyDraft(draft('09G06', [item({ url: blog }), item({ url: moved })]), MELLI, profile, async (u) => pages[u], NOW);
     expect(ctx.rejected.map((r) => r.reason)).toEqual(['на сайте-зеркале не документ ведомства', 'переадресация на example.org']);
+    // HTML на зеркале не берём, даже если там есть слово «Bezirksamt»
+    pages[blog] = { ...pages[blog], body: Buffer.from('<p>Bezirksamt: Die Fertigstellung des Erweiterungsbaus ist für Mitte 2027 geplant. 29.06.2026 Melli-Beese</p>') };
+    const html = await verifyDraft(draft('09G06', [item({ url: blog })]), MELLI, profile, async (u) => pages[u], NOW);
+    expect(html.rejected.map((r) => r.reason)).toEqual(['на сайте-зеркале не документ ведомства']);
   });
 
   it('compact: newest first, at most 2 per category, duplicates dropped', async () => {

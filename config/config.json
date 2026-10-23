@@ -12,7 +12,7 @@
     "plannedMaxAgeMonths": 24,
     "maxItems": 5,
     "maxPerCategory": 2,
-    "officialHosts": ["berlin.de", "parlament-berlin.de"],
+    "officialSources": ["berlin.de/ba-", "berlin.de/sen/", "parlament-berlin.de"],
     "mirrorHosts": ["gruene-fraktion-ts.de"]
   }
 }

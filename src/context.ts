@@ -22,7 +22,10 @@ export type Category = keyof typeof CATEGORIES;
 const DraftItem = z
   .object({
     category: z.enum(Object.keys(CATEGORIES) as [Category, ...Category[]]),
-    published: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?$/), // дата документа
+    published: z
+      .string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?$/)
+      .refine((d) => d.length === 7 || new Date(`${d}T00:00:00Z`).toISOString().startsWith(d), 'нет такой даты'), // дата документа
     planned: z.string().regex(/^\d{4}(-(0[1-9]|1[0-2]))?$/).nullable().default(null), // когда наступит объявленное
     url: z.string().url(),
     quote: z.string().min(30).max(600), // дословно из источника, пропуски — «…»
@@ -71,19 +74,32 @@ export function normalize(s: string): string {
     .toLowerCase();
 }
 
+export const isPdf = (f: Pick<Fetched, 'contentType' | 'body'>) =>
+  f.contentType.includes('pdf') || f.body.subarray(0, 5).toString('latin1') === '%PDF-';
+
+/** Текст документа: у HTML — только основное содержимое страницы, без меню и скрытых блоков. */
 export async function pageText(f: Pick<Fetched, 'contentType' | 'body'>): Promise<string> {
-  if (f.contentType.includes('pdf') || f.body.subarray(0, 5).toString('latin1') === '%PDF-') return pdfText(f.body);
-  const root = parse(f.body.toString('utf8'));
-  root.querySelectorAll('script, style, noscript').forEach((n) => n.remove());
-  return (root.querySelector('body') ?? root).structuredText;
+  if (isPdf(f)) return pdfText(f.body);
+  const charset = f.contentType.match(/charset=([\w-]+)/i)?.[1] ?? 'utf-8';
+  let html: string;
+  try {
+    html = new TextDecoder(charset).decode(f.body);
+  } catch {
+    html = new TextDecoder('utf-8').decode(f.body); // неизвестная кодировка в заголовке
+  }
+  const root = parse(html);
+  root.querySelectorAll('script, style, noscript, template, [hidden], [aria-hidden=true]').forEach((n) => n.remove());
+  return (root.querySelector('main, [role=main], article') ?? root.querySelector('body') ?? root).structuredText;
 }
+
+const MAX_PDF_PAGES = 60;
 
 async function pdfText(body: Buffer): Promise<string> {
   const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const task = getDocument({ data: new Uint8Array(body), verbosity: 0 });
   const doc = await task.promise;
   const pages: string[] = [];
-  for (let i = 1; i <= doc.numPages; i++) {
+  for (let i = 1; i <= Math.min(doc.numPages, MAX_PDF_PAGES); i++) {
     const { items } = await (await doc.getPage(i)).getTextContent();
     pages.push(items.map((it) => ('str' in it ? it.str + (it.hasEOL ? '\n' : '') : '')).join(''));
   }
@@ -101,7 +117,7 @@ export function findQuote(text: string, quote: string): { start: number; end: nu
   let end = 0;
   for (const p of parts) {
     const i = text.indexOf(p, end);
-    if (i < 0 || (start >= 0 && i - end > 2000)) return null;
+    if (i < 0 || (start >= 0 && i - end > 200)) return null; // «…» пропускает полфразы, а не абзац
     if (start < 0) start = i;
     end = i + p.length;
   }
@@ -115,13 +131,22 @@ export function schoolKeys(s: Pick<School, 'bsn' | 'name'>): string[] {
     .replace(/[-\s]*\b(grundschule|gemeinschaftsschule|schule)(?=$|[\s-])/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  return [s.bsn.toLowerCase(), core.replace(/^(am|an der|im|in der) /, '').length >= 6 ? core : full];
+  // одно слово («schöneberger», «am schloss» без места) слишком общее — тогда только полное имя
+  const distinct = core.replace(/^(am|an der|im|in der) /, '');
+  return [s.bsn.toLowerCase(), distinct.length >= 6 && /[\s-]/.test(core) ? core : full];
 }
 
-/** Школа названа рядом с цитатой — в документе обо всех школах округа цитата может быть про другую. */
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Школа названа рядом с цитатой — в документе обо всех школах округа цитата может быть про другую.
+ * Имя — отдельным словом и не как имя школы другого типа («Kurt-Tucholsky-Oberschule»).
+ */
 export function mentionsSchool(text: string, at: { start: number; end: number }, keys: string[]): boolean {
   const around = text.slice(Math.max(0, at.start - 1500), at.end + 1500);
-  return keys.some((k) => around.includes(k));
+  return keys.some((k) =>
+    new RegExp(`(?<![\\p{L}\\d])${escapeRe(k)}(?![\\p{L}\\d])(?![\\s-]*(ober|sekundar|gesamt)schule|[\\s-]*gymnasium)`, 'u').test(around),
+  );
 }
 
 const MONTHS = ['januar', 'februar', 'märz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember'];
@@ -153,8 +178,17 @@ const monthIndex = (s: string) => {
 };
 const monthOf = (i: number) => `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`;
 
+/** Месяц по берлинскому времени: в 00:30 1 ноября в Берлине уже ноябрь, а по UTC — ещё октябрь. */
+const berlinMonth = (now: Date) => {
+  const [y, m] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit' })
+    .format(now)
+    .split('-')
+    .map(Number);
+  return y * 12 + m - 1;
+};
+
 export function contextWindow(now: Date) {
-  const n = now.getUTCFullYear() * 12 + now.getUTCMonth();
+  const n = berlinMonth(now);
   return { now: n, publishedFrom: monthOf(n - config.context.pastMonths), plannedTo: monthOf(n + config.context.futureMonths) };
 }
 
@@ -172,12 +206,21 @@ export function outOfWindow(item: Pick<DraftItem, 'published' | 'planned'>, now:
   return `старше ${config.context.pastMonths} мес. и не план на ближайшие ${config.context.futureMonths} мес.`;
 }
 
-const onHost = (host: string, list: string[]) => list.some((h) => host === h || host.endsWith(`.${h}`));
+/** «berlin.de/ba-» — домен с поддоменами и начало пути: на berlin.de есть и ленты агентств (/aktuelles/berlin/). */
+const onSource = (url: URL, list: string[]) =>
+  list.some((entry) => {
+    const [host, ...path] = entry.split('/');
+    const prefix = path.length ? `/${path.join('/')}` : '/';
+    return (url.hostname === host || url.hostname.endsWith(`.${host}`)) && url.pathname.startsWith(prefix);
+  });
 
 export function sourceKind(url: string): 'official' | 'mirror' | null {
-  const host = new URL(url).hostname;
-  return onHost(host, config.context.officialHosts) ? 'official' : onHost(host, config.context.mirrorHosts) ? 'mirror' : null;
+  const u = new URL(url);
+  return onSource(u, config.context.officialSources) ? 'official' : onSource(u, config.context.mirrorHosts) ? 'mirror' : null;
 }
+
+const MAX_BYTES = 20 * 1024 * 1024;
+const HEADER = 1500; // дата публикации — в шапке документа, а не где-то в тексте («…abgeschlossen im Februar 2026»)
 
 // копия на сайте фракции годится, только если это документ ведомства, а не пересказ
 const OFFICIAL_AUTHOR = /bezirksamt|senatsverwaltung|abgeordnetenhaus|bezirksverordnetenversammlung/;
@@ -193,14 +236,15 @@ export async function verifyDraft(
 ): Promise<Context> {
   if (draft.bsn !== school.bsn) throw new Error(`context.draft.json для ${draft.bsn}, а закреплённая школа — ${school.bsn}`);
   const keys = schoolKeys(school);
-  const texts = new Map<string, Promise<{ final: string; text: string }>>();
+  const texts = new Map<string, Promise<{ final: string; pdf: boolean; text: string }>>();
   const load = (url: string) => {
     if (!texts.has(url)) {
       texts.set(
         url,
         fetchUrl(url).then(async (f) => {
           if (f.status >= 400) throw new Error(`HTTP ${f.status}`);
-          return { final: f.url, text: normalize(await pageText(f)) };
+          if (f.body.length > MAX_BYTES) throw new Error(`больше ${MAX_BYTES / 1024 / 1024} МБ`);
+          return { final: f.url, pdf: isPdf(f), text: normalize(await pageText(f)) };
         }),
       );
     }
@@ -213,7 +257,7 @@ export async function verifyDraft(
     const reject = (reason: string) => rejected.push({ url: item.url, summaryRu: item.summaryRu, reason });
     const kind = sourceKind(item.url);
     if (!kind) {
-      reject(`сайт ${new URL(item.url).hostname} не в списке официальных (config.context)`);
+      reject(`${new URL(item.url).hostname}${new URL(item.url).pathname}: не в списке официальных источников (config.context)`);
       continue;
     }
     const late = outOfWindow(item, now);
@@ -230,7 +274,7 @@ export async function verifyDraft(
       reject(`в однострочнике числа, которых нет в цитате: ${foreign.join(', ')}`);
       continue;
     }
-    let page: { final: string; text: string };
+    let page: { final: string; pdf: boolean; text: string };
     try {
       page = await load(item.url);
     } catch (e) {
@@ -241,7 +285,8 @@ export async function verifyDraft(
       reject(`переадресация на ${new URL(page.final).hostname}`);
       continue;
     }
-    if (kind === 'mirror' && !OFFICIAL_AUTHOR.test(page.text.slice(0, 2000))) {
+    // на зеркале — только PDF ведомства: в HTML слово «Bezirksverordnetenversammlung» бывает и в меню
+    if (kind === 'mirror' && (!page.pdf || !OFFICIAL_AUTHOR.test(page.text.slice(0, HEADER)))) {
       reject('на сайте-зеркале не документ ведомства');
       continue;
     }
@@ -254,8 +299,8 @@ export async function verifyDraft(
       reject('рядом с цитатой школа не названа');
       continue;
     }
-    if (!hasDate(page.text, item.published)) {
-      reject(`даты ${item.published} нет в источнике`);
+    if (!hasDate(page.text.slice(0, HEADER), item.published)) {
+      reject(`даты ${item.published} нет в шапке документа`);
       continue;
     }
     if (item.planned && !numbers(item.quote).includes(item.planned.slice(0, 4))) {

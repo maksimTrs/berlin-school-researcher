@@ -125,8 +125,15 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
   }
 }
 
-const readContext = (dir: string): Context | null =>
-  existsSync(join(dir, 'context.json')) ? JSON.parse(readFileSync(join(dir, 'context.json'), 'utf8')) : null;
+/** Испорченный context.json не должен стоить отчёта после полного прогона браузера — тогда без блока фактов. */
+function readContext(dir: string): Context | null {
+  try {
+    return existsSync(join(dir, 'context.json')) ? JSON.parse(readFileSync(join(dir, 'context.json'), 'utf8')) : null;
+  } catch (e) {
+    console.warn(`${join(dir, 'context.json')}: не читается (${firstLine(e)}) — отчёт без фактов`);
+    return null;
+  }
+}
 
 /** Черновик Claude (context.draft.json) → каждый источник скачан и сверен → context.json и report.html заново. */
 async function contextCmd() {

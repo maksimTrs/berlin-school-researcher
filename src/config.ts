@@ -18,7 +18,7 @@ const Config = z.object({
     plannedMaxAgeMonths: z.number().int().min(1), // …но и сам план объявлен не раньше
     maxItems: z.number().int().min(1),
     maxPerCategory: z.number().int().min(1),
-    officialHosts: z.array(z.string()).min(1), // домен и его поддомены
+    officialSources: z.array(z.string()).min(1), // «домен[/начало пути]», домен — с поддоменами
     mirrorHosts: z.array(z.string()), // сайты фракций с копиями официальных ответов
   }),
 });
