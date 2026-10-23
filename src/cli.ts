@@ -1,7 +1,8 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
+import { Draft, verifyDraft, type Context } from './context.js';
 import { KEY_FIGURES, keyFigure } from './extract.js';
 import { catchment, formatAddress, geocode, neighbors, plzZones, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
@@ -27,6 +28,7 @@ const { positionals, values: args } = parseArgs({
     address: { type: 'string' },
     plz: { type: 'string' },
     street: { type: 'string' },
+    dir: { type: 'string' },
     out: { type: 'string', default: 'out' },
     headed: { type: 'boolean', default: false },
     slowmo: { type: 'string', default: '0' },
@@ -115,8 +117,45 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
 
     const result: AddressResult = { ...base, status: 'ok', address: addr, alternatives, catchment: c, schools, warnings };
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
-    writeFileSync(join(dir, 'report.html'), renderReport(result));
+    // проверенные факты прошлого прогона не теряются при повторном lookup; дата проверки — в отчёте
+    writeFileSync(join(dir, 'report.html'), renderReport(result, readContext(dir)));
     return { result, dir };
+  } finally {
+    await api.dispose();
+  }
+}
+
+const readContext = (dir: string): Context | null =>
+  existsSync(join(dir, 'context.json')) ? JSON.parse(readFileSync(join(dir, 'context.json'), 'utf8')) : null;
+
+/** Черновик Claude (context.draft.json) → каждый источник скачан и сверен → context.json и report.html заново. */
+async function contextCmd() {
+  if (!args.dir) throw new Error('Нужен --dir out/<адрес> — папка отчёта из lookup');
+  const dir = resolve(args.dir);
+  const result: AddressResult = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
+  const main = result.schools[0];
+  if (result.status !== 'ok' || !main) throw new Error(`${dir}: в result.json нет закреплённой школы`);
+  const draft = Draft.parse(JSON.parse(readFileSync(join(dir, 'context.draft.json'), 'utf8')));
+  const api = await newApi();
+  try {
+    const ctx = await verifyDraft(draft, main.school, main.data.profile, async (url) => {
+      const res = await api.get(url, { maxRedirects: 5, maxRetries: 1 });
+      return { url: res.url(), status: res.status(), contentType: res.headers()['content-type'] ?? '', body: await res.body() };
+    });
+    writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
+    writeFileSync(join(dir, 'report.html'), renderReport(result, ctx));
+    console.log(
+      JSON.stringify(
+        {
+          bsn: ctx.bsn,
+          items: ctx.items.map(({ category, published, planned, summaryRu, url }) => ({ category, published, planned, summaryRu, url })),
+          rejected: ctx.rejected,
+          report: join(dir, 'report.html'),
+        },
+        null,
+        2,
+      ),
+    );
   } finally {
     await api.dispose();
   }
@@ -328,6 +367,7 @@ const commands: Record<string, () => Promise<void>> = {
   resolve: resolveCmd,
   lookup: lookupCmd,
   plz: plzCmd,
+  context: contextCmd,
   canary: canaryCmd,
   preflight: preflightCmd,
   startchancen: startchancenCmd,
@@ -335,7 +375,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = commands[positionals[0]];
 if (!cmd) {
   console.error(
-    'Использование: tsx src/cli.ts resolve|lookup|plz|canary|preflight|startchancen [--input f.json | --address "..." | --plz 10439 [--street "..."]] [--headed --slowmo N --trace]',
+    'Использование: tsx src/cli.ts resolve|lookup|plz|context|canary|preflight|startchancen [--input f.json | --address "..." | --plz 10439 [--street "..."] | --dir out/<адрес>] [--headed --slowmo N --trace]',
   );
   process.exit(2);
 }
