@@ -1,8 +1,12 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parse } from 'node-html-parser';
+import type { APIRequestContext } from 'playwright';
 import { z } from 'zod';
 import { config } from './config.js';
 import type { Profile } from './extract.js';
 import type { School } from './geo.js';
+import { firstLine } from './preflight.js';
 
 /**
  * Факты о школе из официальных источников: Claude находит и пишет черновик (context.draft.json),
@@ -157,10 +161,23 @@ const ANY_SCHOOL = /(?<![\p{L}\d])(?:[\p{L}\d.]+-)+(?:grund|gemeinschafts|ober|s
 
 type Mention = { start: number; end: number; ours: boolean };
 
-/** Все упоминания школ: свои — по ключам (отдельным словом, не школа другого типа), остальные — чужие. */
+const SCHOOL_WORD = '(?:grund|gemeinschafts)?schule';
+
+/**
+ * Номер и полное имя — отдельным словом, не школа другого типа. Имя без «Grundschule» — только рядом со словом
+ * «schule» («melli-beese-schule», «grundschule am arkonaplatz»): «kurt-tucholsky-straße» и «spielplatz am arkonaplatz» — не школа.
+ */
+const ownPattern = (k: string) => {
+  const key = escapeRe(k);
+  if (/^\d{2}[a-z]\d{2}$/.test(k) || new RegExp(`(^|[\\s-])${SCHOOL_WORD}($|[\\s-])`).test(k))
+    return `(?<![\\p{L}\\d])${key}(?![\\p{L}\\d])(?![\\s-]*(ober|sekundar|gesamt)schule|[\\s-]*gymnasium)`;
+  return `(?<![\\p{L}\\d])${key}[\\s-]*${SCHOOL_WORD}(?![\\p{L}\\d])|(?<=(?<![\\p{L}\\d])${SCHOOL_WORD}[\\s-]+)${key}(?![\\p{L}\\d])`;
+};
+
+/** Все упоминания школ: свои — по ключам, остальные — чужие. */
 function mentions(text: string, keys: string[]): Mention[] {
   const own: Mention[] = keys.flatMap((k) =>
-    [...text.matchAll(new RegExp(`(?<![\\p{L}\\d])${escapeRe(k)}(?![\\p{L}\\d])(?![\\s-]*(ober|sekundar|gesamt)schule|[\\s-]*gymnasium)`, 'gu'))].map(
+    [...text.matchAll(new RegExp(ownPattern(k), 'gu'))].map(
       (m) => ({ start: m.index, end: m.index + m[0].length, ours: true }),
     ),
   );
@@ -252,11 +269,48 @@ export function sourceKind(url: string): 'official' | 'mirror' | null {
   return onSource(u, config.context.officialSources) ? 'official' : onSource(u, config.context.mirrorHosts) ? 'mirror' : null;
 }
 
+/** Переадресации — вручную: каждый шаг должен оставаться в списке источников, а не уходить на любой адрес. */
+export const fetchFollowing =
+  (api: Pick<APIRequestContext, 'get'>) =>
+  async (url: string): Promise<Fetched> => {
+    let current = url;
+    for (let hop = 0; hop <= 5; hop++) {
+      const res = await api.get(current, { maxRedirects: 0, maxRetries: 1 });
+      const location = res.status() >= 300 && res.status() < 400 ? res.headers()['location'] : undefined;
+      if (!location) return { url: current, status: res.status(), contentType: res.headers()['content-type'] ?? '', body: await res.body() };
+      current = new URL(location, current).toString();
+      if (!sourceKind(current)) return { url: current, status: 200, contentType: '', body: Buffer.alloc(0) }; // verifyDraft отклонит
+    }
+    throw new Error('больше 5 переадресаций');
+  };
+
+/** Испорченный context.json не должен стоить отчёта после полного прогона браузера — тогда без блока фактов. */
+export function readContext<T>(dir: string, schema: { parse: (v: unknown) => T }): T | null {
+  try {
+    return existsSync(join(dir, 'context.json')) ? schema.parse(JSON.parse(readFileSync(join(dir, 'context.json'), 'utf8'))) : null;
+  } catch (e) {
+    const why = e instanceof SyntaxError ? firstLine(e) : 'структура не та, что пишет npm run context';
+    console.warn(`${join(dir, 'context.json')}: не читается (${why}) — отчёт без фактов`);
+    return null;
+  }
+}
+
 const MAX_BYTES = 20 * 1024 * 1024;
 const HEADER = 1500; // дата публикации — в шапке документа, а не где-то в тексте («…abgeschlossen im Februar 2026»)
 
 // копия на сайте фракции годится, только если это документ ведомства, а не пересказ
 const OFFICIAL_AUTHOR = /bezirksamt|senatsverwaltung|abgeordnetenhaus|bezirksverordnetenversammlung/;
+const LETTERHEAD = 120;
+
+/**
+ * Ответ ведомства: ведомство в бланке, а не фракция, и в шапке — форма ответа.
+ * Запрос фракции («Antrag … an die Bezirksverordnetenversammlung: Das Bezirksamt wird ersucht…») и её
+ * пресс-релиз («Die Antwort auf unsere Anfrage…») ведомство только называют.
+ */
+const isAuthorityAnswer = (text: string) => {
+  const letterhead = text.slice(0, LETTERHEAD);
+  return OFFICIAL_AUTHOR.test(letterhead) && !/fraktion/.test(letterhead) && /antwort auf|beantwortung/.test(text.slice(0, HEADER));
+};
 
 // ---------- весь черновик ----------
 
@@ -320,7 +374,7 @@ export async function verifyDraft(
       continue;
     }
     // на зеркале — только PDF ведомства: в HTML слово «Bezirksverordnetenversammlung» бывает и в меню
-    if (kind === 'mirror' && (!page.pdf || !OFFICIAL_AUTHOR.test(page.text.slice(0, HEADER)))) {
+    if (kind === 'mirror' && (!page.pdf || !isAuthorityAnswer(page.text))) {
       reject('на сайте-зеркале не документ ведомства');
       continue;
     }

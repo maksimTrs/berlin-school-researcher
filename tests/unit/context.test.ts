@@ -1,10 +1,14 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { APIRequestContext } from 'playwright';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ContextSchema,
   Draft,
   PlzContextSchema,
   PlzDraft,
+  fetchFollowing,
   findQuote,
   foreignNumbers,
   hasDate,
@@ -12,6 +16,7 @@ import {
   normalize,
   outOfWindow,
   pageText,
+  readContext,
   schoolKeys,
   sourceKind,
   verifyDraft,
@@ -54,6 +59,24 @@ const item = (over: Partial<DraftItem>): DraftItem => ({
 });
 const draft = (bsn: string, items: DraftItem[]) => Draft.parse({ bsn, queries: ['test'], items });
 
+/** Одностраничный PDF с одной строкой текста (без xref — pdf.js его восстанавливает). */
+const pdf = (text: string) => {
+  const stream = `BT /F1 10 Tf 20 700 Td (${text}) Tj ET`;
+  return Buffer.from(
+    [
+      '%PDF-1.4',
+      '1 0 obj <</Type /Catalog /Pages 2 0 R>> endobj',
+      '2 0 obj <</Type /Pages /Kids [3 0 R] /Count 1>> endobj',
+      '3 0 obj <</Type /Page /Parent 2 0 R /MediaBox [0 0 2000 792] /Contents 4 0 R /Resources <</Font <</F1 5 0 R>>>>>> endobj',
+      `4 0 obj <</Length ${stream.length}>> stream\n${stream}\nendstream endobj`,
+      '5 0 obj <</Type /Font /Subtype /Type1 /BaseFont /Helvetica>> endobj',
+      'trailer <</Root 1 0 R>>',
+      '%%EOF',
+    ].join('\n'),
+    'latin1',
+  );
+};
+
 describe('normalize / findQuote', () => {
   it('PDF line-break hyphenation, quotes and dashes match the typed quote', () => {
     expect(normalize('Auswir-\nkungen in Tempelhof-\nSchöneberg „Raum“ – frei')).toBe('auswirkungen in tempelhof-schöneberg "raum" - frei');
@@ -94,6 +117,33 @@ describe('checks', () => {
     expect(has('Bezirk Tempelhof-Schöneberger Schulen: Raummangel.', 'Schöneberger Grundschule')).toBe(false);
   });
 
+  it('mentionsSchool: the name without «Grundschule» counts only next to the word «Schule»', () => {
+    const at = (text: string) => ({ start: 0, end: text.length });
+    const has = (text: string, name: string) => mentionsSchool(normalize(text), at(text), schoolKeys({ bsn: '01G99', name }));
+    // улица, площадь, другое учреждение с тем же именем — не школа
+    expect(has('Die Grundschule an der Bäke in der Kurt-Tucholsky-Straße wird um 2 Züge erweitert.', 'Kurt-Tucholsky-Grundschule')).toBe(false);
+    expect(has('In der Kurt-Tucholsky-Bibliothek fehlen Räume.', 'Kurt-Tucholsky-Grundschule')).toBe(false);
+    expect(has('Der Spielplatz am Arkonaplatz wird ab Oktober 2026 gesperrt.', 'Grundschule am Arkonaplatz')).toBe(false);
+    expect(has('Die Kita am Arkonaplatz bekommt einen Neubau.', 'Grundschule am Arkonaplatz')).toBe(false);
+    expect(has('Das Gymnasium am Arkonaplatz bekommt einen Neubau.', 'Grundschule am Arkonaplatz')).toBe(false);
+    // сама школа — в обоих порядках слов; «schule» внутри имени («Schulenburg») — не слово «Schule»
+    expect(has('Die Kurt-Tucholsky-Grundschule bekommt Container.', 'Kurt-Tucholsky-Grundschule')).toBe(true);
+    expect(has('Die Schule am Arkonaplatz bekommt Container.', 'Grundschule am Arkonaplatz')).toBe(true);
+    expect(has('Die Graf-von-der-Schulenburg-Schule bekommt Container.', 'Graf-von-der-Schulenburg-Grundschule')).toBe(true);
+    expect(has('In der Graf-von-der-Schulenburg-Straße wird gebaut.', 'Graf-von-der-Schulenburg-Grundschule')).toBe(false);
+  });
+
+  it('mentionsSchool: the school named before the quote counts only within 1500 chars', () => {
+    const quote = 'die arbeiten dauern noch an.';
+    const near = (filler: number) => {
+      const text = normalize(`Die Melli-Beese-Schule wird erweitert. ${'wort '.repeat(filler)}${quote}`);
+      const start = text.indexOf(quote);
+      return mentionsSchool(text, { start, end: start + quote.length }, schoolKeys(MELLI));
+    };
+    expect(near(10)).toBe(true);
+    expect(near(320)).toBe(false); // 1600 знаков между школой и цитатой
+  });
+
   it('hasDate: day and month precision', () => {
     const text = normalize('Pressemitteilung vom 29.06.2026 · am 18. Februar 2026 · März 2025');
     expect(hasDate(text, '2026-06-29')).toBe(true);
@@ -132,6 +182,16 @@ describe('checks', () => {
     expect(text).toContain('Bürgel');
     expect(text).not.toContain('Menü');
     expect(text).not.toContain('versteckt');
+  });
+
+  it('pageText: unknown charset in Content-Type falls back to UTF-8', async () => {
+    const text = await pageText({ contentType: 'text/html; charset=x-unknown', body: Buffer.from('<main>Bürgel</main>') });
+    expect(text).toContain('Bürgel');
+  });
+
+  it('outOfWindow: a year-only plan lasts until December', () => {
+    expect(outOfWindow({ published: '2025-06', planned: '2026' }, NOW)).toBeNull();
+    expect(outOfWindow({ published: '2025-06', planned: '2025' }, NOW)).toMatch(/старше 12/);
   });
 
   it('outOfWindow: 12 months back, plans within 6 months ahead', () => {
@@ -259,8 +319,107 @@ describe('verifyDraft', () => {
     expect(ctx.rejected.map((r) => r.reason)).toEqual(['повтор', 'лимит: не больше 2 в категории']);
   });
 
+  it('plan year missing from the quote, HTTP error and oversized source are rejected', async () => {
+    const big = 'https://www.berlin.de/ba-treptow-koepenick/gross.pdf';
+    const gone = 'https://www.berlin.de/ba-treptow-koepenick/weg.php';
+    const pages: Record<string, Fetched> = {
+      ...PAGES,
+      [big]: { url: big, status: 200, contentType: 'application/pdf', body: Buffer.alloc(20 * 1024 * 1024 + 1) },
+      [gone]: { url: gone, status: 404, contentType: 'text/html', body: Buffer.alloc(0) },
+    };
+    const ctx = await verifyDraft(
+      draft('09G06', [item({ planned: '2028' }), item({ url: gone }), item({ url: big })]),
+      MELLI,
+      profile,
+      async (u) => pages[u],
+      NOW,
+    );
+    expect(ctx.rejected.map((r) => r.reason)).toEqual([
+      'года плана 2028 нет в цитате',
+      'источник не загрузился: HTTP 404',
+      'источник не загрузился: больше 20 МБ',
+    ]);
+  });
+
+  it('mirror PDF counts only as an authority answer, not as a party motion or press release', async () => {
+    const url = 'https://gruene-fraktion-ts.de/wp-content/uploads/2026/06/papier.pdf';
+    const quote = 'Die Fertigstellung des Erweiterungsbaus fuer die Melli-Beese-Schule ist fuer Mitte 2027 geplant.';
+    const check = async (head: string) => {
+      const body = pdf(`${head} 29.06.2026 ${quote}`);
+      return verifyDraft(draft('09G06', [item({ url, quote })]), MELLI, profile, async () => ({ url, status: 200, contentType: 'application/pdf', body }), NOW);
+    };
+    expect((await check('Bezirksamt Treptow-Koepenick Antwort auf die Muendliche Anfrage Nr. 4')).items).toHaveLength(1);
+    const notAnswer = [
+      'Fraktion Buendnis 90 Antwort auf die Anfrage', // ведомства нет в бланке
+      'Bezirksamt Treptow-Koepenick Pressemitteilung', // ведомство, но не форма ответа
+      'Antrag der Fraktion Buendnis 90 an die Bezirksverordnetenversammlung: Das Bezirksamt wird ersucht', // запрос фракции
+      'Fraktion in der Bezirksverordnetenversammlung Treptow-Koepenick Die Antwort auf unsere Anfrage zeigt', // пресс-релиз фракции
+    ];
+    for (const head of notAnswer) expect((await check(head)).rejected.map((r) => r.reason), head).toEqual(['на сайте-зеркале не документ ведомства']);
+  });
+
   it('draft for another school is an error, not an empty block', async () => {
     await expect(verifyDraft(draft('07G32', []), MELLI, profile, fetchFixture, NOW)).rejects.toThrow(/09G06/);
+  });
+});
+
+describe('fetchFollowing / readContext', () => {
+  const resp = (status: number, headers: Record<string, string> = {}, body = '') => ({
+    status: () => status,
+    headers: () => headers,
+    body: async () => Buffer.from(body),
+  });
+  const api = (pages: Record<string, ReturnType<typeof resp>>) => {
+    const get = vi.fn(async (url: string) => pages[url] ?? resp(404));
+    return { get, fetch: fetchFollowing({ get } as unknown as Pick<APIRequestContext, 'get'>) };
+  };
+  const BA = 'https://www.berlin.de/ba-treptow-koepenick';
+
+  it('follows redirects within the source list, by hand', async () => {
+    const { get, fetch } = api({
+      [`${BA}/alt.php`]: resp(301, { location: '/ba-treptow-koepenick/neu.php' }),
+      [`${BA}/neu.php`]: resp(200, { 'content-type': 'text/html' }, '<main>ok</main>'),
+    });
+    const f = await fetch(`${BA}/alt.php`);
+    expect([f.url, f.status, f.contentType, f.body.toString()]).toEqual([`${BA}/neu.php`, 200, 'text/html', '<main>ok</main>']);
+    expect(get).toHaveBeenCalledWith(`${BA}/alt.php`, { maxRedirects: 0, maxRetries: 1 });
+  });
+
+  it('a redirect off the list is not requested, and verifyDraft rejects it', async () => {
+    const { get, fetch } = api({ [PRESS_URL]: resp(302, { location: 'https://example.org/press' }) });
+    expect((await fetch(PRESS_URL)).url).toBe('https://example.org/press');
+    expect(get.mock.calls.map(([u]) => u)).toEqual([PRESS_URL]);
+    const ctx = await verifyDraft(draft('09G06', [item({})]), MELLI, profile, fetch, NOW);
+    expect(ctx.rejected.map((r) => r.reason)).toEqual(['переадресация на example.org']);
+  });
+
+  it('more than 5 redirects is an error', async () => {
+    const { get, fetch } = api({ [`${BA}/a.php`]: resp(302, { location: `${BA}/a.php` }) });
+    await expect(fetch(`${BA}/a.php`)).rejects.toThrow('больше 5 переадресаций');
+    expect(get).toHaveBeenCalledTimes(6);
+  });
+
+  it('readContext: no file — null; broken or foreign file — warning and null, not a crash', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'context-'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(readContext(dir, ContextSchema)).toBeNull();
+      const ctx = await verifyDraft(draft('09G06', []), MELLI, profile, fetchFixture, NOW);
+      writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx));
+      expect(readContext(dir, ContextSchema)).toEqual(ctx);
+      expect(warn).not.toHaveBeenCalled();
+
+      writeFileSync(join(dir, 'context.json'), '{"bsn":');
+      expect(readContext(dir, ContextSchema)).toBeNull();
+      writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx));
+      expect(readContext(dir, PlzContextSchema)).toBeNull(); // context.json по адресу в папке plz
+      expect(warn.mock.calls.map(([m]) => m)).toEqual([
+        expect.stringMatching(/не читается \(.*JSON.*\) — отчёт без фактов/),
+        expect.stringContaining('не читается (структура не та, что пишет npm run context)'),
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
@@ -300,6 +459,10 @@ describe('report', () => {
     // пояснение — только к темам, которые есть в фактах
     expect(html).toContain('<b>Классы для детей без немецкого.</b> Willkommensklasse');
     expect(html).not.toContain('<b>Стройка и ремонт.</b>');
+    // источник-зеркало подписан, дата проверки и окно — под фактами, план — рядом с фактом
+    expect(html).toContain('копия документа ведомства · ');
+    expect(html).toContain('Проверено 2026-10-23: публикации с 2025-10 и планы до 2027-04');
+    expect(renderReport(result, { ...ctx, items: [{ ...ctx.items[0], planned: '2027' }] })).toContain('(план: 2027)');
   });
 
   it('checked, nothing found — one line, not a missing block', async () => {

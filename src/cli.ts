@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
-import { ContextSchema, Draft, PlzContextSchema, PlzDraft, sourceKind, verifyDraft, type Context, type Fetched, type PlzContext } from './context.js';
+import { ContextSchema, Draft, fetchFollowing, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
 import { KEY_FIGURES, keyFigure } from './extract.js';
 import { catchment, formatAddress, geocode, neighbors, plzZones, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
@@ -125,17 +125,6 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
   }
 }
 
-/** Испорченный context.json не должен стоить отчёта после полного прогона браузера — тогда без блока фактов. */
-function readContext<T>(dir: string, schema: { parse: (v: unknown) => T }): T | null {
-  try {
-    return existsSync(join(dir, 'context.json')) ? schema.parse(JSON.parse(readFileSync(join(dir, 'context.json'), 'utf8'))) : null;
-  } catch (e) {
-    const why = e instanceof SyntaxError ? firstLine(e) : 'структура не та, что пишет npm run context';
-    console.warn(`${join(dir, 'context.json')}: не читается (${why}) — отчёт без фактов`);
-    return null;
-  }
-}
-
 const brief = (ctx: Context) => ({
   bsn: ctx.bsn,
   items: ctx.items.map(({ category, published, planned, summaryRu, url }) => ({ category, published, planned, summaryRu, url })),
@@ -152,18 +141,7 @@ async function contextCmd() {
   const raw = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
   const draftJson = JSON.parse(readFileSync(join(dir, 'context.draft.json'), 'utf8'));
   const api = await newApi();
-  // переадресации — вручную: каждый шаг должен оставаться в списке источников, а не уходить на любой адрес
-  const fetchUrl = async (url: string): Promise<Fetched> => {
-    let current = url;
-    for (let hop = 0; hop <= 5; hop++) {
-      const res = await api.get(current, { maxRedirects: 0, maxRetries: 1 });
-      const location = res.status() >= 300 && res.status() < 400 ? res.headers()['location'] : undefined;
-      if (!location) return { url: current, status: res.status(), contentType: res.headers()['content-type'] ?? '', body: await res.body() };
-      current = new URL(location, current).toString();
-      if (!sourceKind(current)) return { url: current, status: 200, contentType: '', body: Buffer.alloc(0) }; // verifyDraft отклонит
-    }
-    throw new Error('больше 5 переадресаций');
-  };
+  const fetchUrl = fetchFollowing(api);
   try {
     if ('zones' in raw) {
       const result = raw as PlzResult;
