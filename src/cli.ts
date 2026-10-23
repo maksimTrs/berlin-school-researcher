@@ -8,6 +8,7 @@ import { collectSchool, launchBrowser } from './portrait.js';
 import { firstLine, preflight } from './preflight.js';
 import { renderReport, type AddressResult, type SchoolEntry } from './report.js';
 import { Input, parseAddress, type AddressQuery } from './schema.js';
+import { scoreSchool, verdict } from './score.js';
 
 const { positionals, values: args } = parseArgs({
   allowPositionals: true,
@@ -112,11 +113,6 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
 /** Короткая сводка в stdout — её читает skill, чтобы написать итог в чат. */
 function summarize({ result: r, dir }: { result: AddressResult; dir: string | null }) {
   const main = r.schools[0];
-  const current = (k: (typeof KEY_FIGURES)[number]['key']) => {
-    const def = KEY_FIGURES.find((x) => x.key === k)!;
-    const yp = main?.data.pages[def.page]?.[0];
-    return yp ? { year: yp.year, value: keyFigure(yp.data, def.row, def.col) } : null;
-  };
   return {
     input: r.input.raw ?? `${r.input.street} ${r.input.house}`,
     status: r.status,
@@ -128,8 +124,7 @@ function summarize({ result: r, dir }: { result: AddressResult; dir: string | nu
     bsn: main?.school.bsn ?? null,
     candidates: r.schools.filter((s) => s.role === 'candidate').map((s) => `${s.school.name} (${s.school.bsn})`),
     warnings: r.warnings,
-    ausfall: current('ausfall'),
-    ausfallBerlin: current('ausfallBerlin'),
+    verdict: main ? verdict(scoreSchool(main.data)).text : null,
     report: dir && join(dir, 'report.html'),
     result: dir && join(dir, 'result.json'),
   };

@@ -3,6 +3,7 @@ import { KEY_FIGURES, keyFigure, PAGES, type PageKey } from './extract.js';
 import { formatAddress, type Candidate, type Catchment, type School } from './geo.js';
 import type { SchoolData, YearPage } from './portrait.js';
 import type { AddressQuery } from './schema.js';
+import { EMOJI, scoreSchool, verdict } from './score.js';
 
 export type SchoolEntry = { school: School; role: 'main' | 'candidate' | 'neighbor'; data: SchoolData };
 
@@ -99,6 +100,27 @@ function schoolLinks(s: School, data: SchoolData, home: Point, withInspections: 
   ].join(' · ');
 }
 
+function scoreBlock(data: SchoolData, years: string[]): string {
+  const metrics = scoreSchool(data);
+  const v = verdict(metrics);
+  const cell = (m: (typeof metrics)[number], year: string) => {
+    const y = m.years.find((x) => x.year === year);
+    if (!y || y.value === null) return `<span class="nd">${esc(noData(year))}</span>`;
+    const mark = y.worse === null ? '' : y.worse ? '<b class="bad">✗</b> ' : '<span class="good">✓</span> ';
+    return `${mark}${esc(y.value + m.unit)}${y.ref ? ` <small>средн. ${esc(y.ref)}</small>` : ''}`;
+  };
+  return `<div class="score">
+    <p class="verdict">${esc(v.text)}</p>
+    <div class="scroll"><table class="summary">
+      <thead><tr><th>Показатель</th>${years.map((y) => `<th>${esc(y)}</th>`).join('')}</tr></thead>
+      <tbody>${metrics
+        .map((m) => `<tr><th scope="row">${EMOJI[m.light]} ${esc(m.title)}</th>${years.map((y) => `<td>${cell(m, y)}</td>`).join('')}</tr>`)
+        .join('')}</tbody>
+    </table></div>
+    <p class="note">✗ — хуже средней по типу школ с сайта (учителя — дефицит часов). 🟢 нет ✗ · 🟡 есть ✗ · 🔴 ✗ в большинстве лет.</p>
+  </div>`;
+}
+
 const ROLE: Record<SchoolEntry['role'], string> = { main: 'закреплённая', candidate: 'кандидат', neighbor: 'ближайшая' };
 
 // ---------- render ----------
@@ -183,6 +205,10 @@ dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margi
 dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .years { display: flex; flex-wrap: wrap; gap: 16px; }
 .years figure { margin: 0; display: grid; gap: 6px; min-width: 0; max-width: 100%; }
+.score { display: grid; gap: 8px; min-width: 0; }
+.score p { margin: 0; }
+.verdict { font: 600 1.1rem/1.3 var(--display); }
+.bad { color: var(--warn); } .good { color: var(--accent); }
 .metric { border-top: 1px solid var(--line); padding-top: 16px; }
 details { border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; background: var(--surface); }
 summary { cursor: pointer; font-weight: 600; }
@@ -207,6 +233,7 @@ ${
   <h2>Закреплённая школа · ${esc(main.school.bsn)}</h2>
   <div>${schoolLinks(main.school, main.data, addr, true)}</div>
   <p class="meta">Расстояние от адреса по прямой: ${main.school.distanceM ?? '—'} м</p>
+  ${scoreBlock(main.data, years)}
   <dl>${main.data.profile.fields.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
 </section>
 
