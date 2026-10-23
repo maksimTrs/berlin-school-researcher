@@ -6,6 +6,7 @@ import {
   extractInspections,
   extractPage,
   extractProfile,
+  forYear,
   keyFigure,
 } from '../../src/extract.js';
 
@@ -19,6 +20,14 @@ describe('extractPage', () => {
     expect(p.dataStand).toBe('2025/26');
     expect(keyFigure(p, 'Ausfall von Unterricht', 1)).toBe('1,2%');
     expect(keyFigure(p, 'Ausfall von Unterricht in Berlin', 1)).toBe('3,0%');
+  });
+
+  it('forYear: table of another year than requested → no_data, not its figures', () => {
+    const p = extractPage(fixture('01G01_management_vunt'));
+    expect(forYear(p, '2025/26')).toBe(p);
+    const other = forYear(p, '2023/24');
+    expect(other.status).toBe('no_data');
+    expect(keyFigure(other, 'Ausfall von Unterricht', 1)).toBeNull();
   });
 
   it('uvers: teacher balance', () => {

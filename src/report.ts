@@ -118,7 +118,7 @@ function scoreBlock(data: SchoolData, years: string[]): string {
         .map((m) => `<tr><th scope="row">${EMOJI[m.light]} ${esc(m.title)}</th>${years.map((y) => `<td>${cell(m, y)}</td>`).join('')}</tr>`)
         .join('')}</tbody>
     </table></div>
-    <p class="note">✗ — хуже средней по типу школ с сайта (учителя — дефицит часов). 🟢 нет ✗ · 🟡 есть ✗ · 🔴 ✗ в большинстве лет.</p>
+    <p class="note">✗ — хуже средней по типу школ с сайта (учителя — дефицит часов). 🟢 нет ✗ · 🟡 есть ✗ · 🔴 ✗ в большинстве лет. Итог — по худшей строке.</p>
   </div>`;
 }
 
@@ -176,7 +176,10 @@ export function renderReport(r: AddressResult): string {
 
   const title = `Школа — ${addr.street} ${addr.house}${addr.suffix ?? ''}, ${addr.plz}`;
 
-  return `<title>${esc(title)}</title>
+  return `<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700&family=Source+Sans+3:wght@400;600&display=swap">
 <style>

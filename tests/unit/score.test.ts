@@ -78,12 +78,14 @@ describe('verdict', () => {
         }),
       ),
     );
-    expect(v).toEqual({ light: 'yellow', text: '🟡 Отмены выше средней — 1 год из 3 · Не хватает учителей — 2 года из 3' });
+    expect(v).toEqual({ light: 'red', text: '🔴 Отмены выше средней — 1 год из 3 · Не хватает учителей — 2 года из 3' });
   });
 
-  it('more than half ✗ → red; a metric without ✗ is not mentioned', () => {
+  it('light is the worst metric light; a metric without ✗ is not mentioned', () => {
     const v = verdict(scoreSchool(data({ vunt: years3(() => vunt('1,0%', '2,9%')), uvers: years3(() => uvers('-1,0')) })));
-    expect(v).toEqual({ light: 'yellow', text: '🟡 Не хватает учителей — 3 года из 3' });
+    expect(v).toEqual({ light: 'red', text: '🔴 Не хватает учителей — 3 года из 3' });
+    const yellow = verdict(scoreSchool(data({ vunt: years3((i) => vunt(i ? '1,0%' : '4,0%', '2,9%')), uvers: years3(() => uvers('1,0')) })));
+    expect(yellow).toEqual({ light: 'yellow', text: '🟡 Отмены выше средней — 1 год из 3' });
     const red = verdict(scoreSchool(data({ vunt: years3(() => vunt('4,0%', '2,9%')), uvers: years3((i) => uvers(i ? '-1,0' : '1,0')) })));
     expect(red).toEqual({ light: 'red', text: '🔴 Отмены выше средней — 3 года из 3 · Не хватает учителей — 2 года из 3' });
   });

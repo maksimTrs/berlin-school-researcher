@@ -176,10 +176,15 @@ async function lookupCmd() {
 /** Ежемесячная проверка: эталонный адрес проходит весь путь, ключевые подстраницы текущего года отдают данные. */
 async function canaryCmd() {
   if (!(await sitesAvailable())) return;
-  const { result, dir } = await lookupOne(parseAddress(config.defaultAddress));
   const problems: string[] = [];
-  if (result.status !== 'ok') problems.push(`адрес «${config.defaultAddress}» не найден в adressen_berlin`);
-  const main = result.schools[0];
+  // сбой основной школы — тоже проблема в JSON, а не стектрейс; сверку Startchancen всё равно делаем
+  const run = await lookupOne(parseAddress(config.defaultAddress)).catch((e) => {
+    problems.push(`lookup «${config.defaultAddress}»: ${firstLine(e)}`);
+    return null;
+  });
+  const result = run?.result;
+  if (result && result.status !== 'ok') problems.push(`адрес «${config.defaultAddress}» не найден в adressen_berlin`);
+  const main = result?.schools[0];
   if (main) {
     if (!main.data.profile.name) problems.push('Schulportrait: пустое название школы (#ContentPlaceHolderMenuListe_lblSchulname)');
     // пропуски (fehl) у начальных школ законно бывают «н/д» — их не проверяем
@@ -205,7 +210,7 @@ async function canaryCmd() {
   } finally {
     await api.dispose();
   }
-  console.log(JSON.stringify({ ok: problems.length === 0, problems, summary: summarize({ result, dir }) }, null, 2));
+  console.log(JSON.stringify({ ok: problems.length === 0, problems, summary: run && summarize(run) }, null, 2));
   if (problems.length) process.exitCode = 1;
 }
 

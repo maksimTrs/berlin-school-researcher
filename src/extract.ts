@@ -70,6 +70,12 @@ export function extractPage(html: string): PageData {
 /** Учебный год из подписи таблицы («Vertretungsunterricht 2025/26») или null. */
 export const captionYear = (p: PageData) => p.caption.match(/\d{4}\/\d{2}/)?.[0] ?? null;
 
+/** Сайт отдал таблицу другого года, чем запрошен (`&jahr=`) — для запрошенного года это «нет данных», а не чужие цифры. */
+export const forYear = (p: PageData, year: string): PageData => {
+  const y = captionYear(p);
+  return y && y !== year ? { ...p, status: 'no_data', rows: [], headRows: 0 } : p;
+};
+
 /** Последние учебные годы, на которые у подстраницы есть ссылки `path&jahr=…`, от нового к старому. */
 export function availableYears(html: string, path: string): string[] {
   const years = new Set<string>();

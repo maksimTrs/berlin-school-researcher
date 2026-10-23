@@ -19,7 +19,7 @@ export type Verdict = { light: Light; text: string };
 
 export const EMOJI: Record<Light, string> = { green: '🟢', yellow: '🟡', red: '🔴', nd: '⚪' };
 
-/** Одно правило и для строки показателя, и для итога: 🟢 ни одного «хуже», 🔴 «хуже» больше чем в половине, иначе 🟡. */
+/** Цвет строки показателя: 🟢 ни одного «хуже», 🔴 «хуже» больше чем в половине лет, иначе 🟡. */
 function lightOf(years: YearScore[]): Light {
   const known = years.filter((y) => y.worse !== null);
   const bad = known.filter((y) => y.worse).length;
@@ -45,12 +45,14 @@ export function scoreSchool(data: SchoolData): MetricScore[] {
 
 const yearsWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'год' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'года' : 'лет');
 
+const RANK: Light[] = ['nd', 'green', 'yellow', 'red'];
+
 /**
- * Итог по всем показателям и годам — словами, чтобы шапка сама объясняла цвет:
- * «🟡 Отмены выше средней — 1 год из 3 · Не хватает учителей — 2 года из 3».
+ * Итог — цвет худшей строки показателя, словами, чтобы шапка сама объясняла цвет:
+ * «🔴 Отмены выше средней — 1 год из 3 · Не хватает учителей — 2 года из 3».
  */
 export function verdict(metrics: MetricScore[]): Verdict {
-  const light = lightOf(metrics.flatMap((m) => m.years));
+  const light = metrics.reduce<Light>((worst, m) => (RANK.indexOf(m.light) > RANK.indexOf(worst) ? m.light : worst), 'nd');
   const counts = metrics
     .map((m) => ({ m, known: m.years.filter((y) => y.worse !== null).length, bad: m.years.filter((y) => y.worse).length }))
     .filter((c) => c.known);

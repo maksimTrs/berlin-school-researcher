@@ -7,6 +7,7 @@ import {
   extractInspections,
   extractPage,
   extractProfile,
+  forYear,
   KEY_FIGURES,
   PAGES,
   type PageData,
@@ -109,7 +110,7 @@ export async function collectSchool(page: Page, bsn: string, full: boolean, scre
     const years: YearPage[] = [{ year, data: current }];
     if (full && p.trend && /^\d{4}\//.test(year)) {
       for (const y of previousYears(year, config.trendYears - 1)) {
-        years.push({ year: y, data: extractPage(await fetchHtml(`${p.path}&jahr=${encodeURIComponent(y)}`)) });
+        years.push({ year: y, data: forYear(extractPage(await fetchHtml(`${p.path}&jahr=${encodeURIComponent(y)}`)), y) });
       }
     }
     result.pages[p.key] = years;
