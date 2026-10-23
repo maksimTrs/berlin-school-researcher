@@ -25,11 +25,10 @@ describe('assignSchool', () => {
     expect(assignSchool('0110', [a], all, home, {})).toMatchObject({ status: 'exact', schools: [{ bsn: '01G01' }] });
   });
 
-  it('several inside, zone code matches bsn → matched_by_code', () => {
-    expect(assignSchool('0110', [a, b], all, home, {})).toMatchObject({
-      status: 'matched_by_code',
-      schools: [{ bsn: '01G10' }],
-    });
+  it('several inside, zone code matches bsn → matched_by_code, the rest of the zone kept after it by distance', () => {
+    const r = assignSchool('0110', [c, a, b], all, home, {});
+    expect(r.status).toBe('matched_by_code');
+    expect(r.schools.map((s) => s.bsn)).toEqual(['01G10', '01G01', '01G20']);
   });
 
   it('several inside, no code match → ambiguous, nearest first', () => {

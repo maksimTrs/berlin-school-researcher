@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
 import { ContextSchema, Draft, fetchFollowing, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
 import { KEY_FIGURES, keyFigure } from './extract.js';
-import { catchment, formatAddress, geocode, neighbors, plzZones, type School } from './geo.js';
+import { catchment, formatAddress, geocode, neighbors, plzZones, resolveStatus, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
 import { firstLine, preflight } from './preflight.js';
 import {
@@ -60,7 +60,7 @@ async function resolveCmd() {
       const candidates = await geocode(api, q);
       results.push({
         raw: q.raw ?? `${q.street} ${q.house}`,
-        status: candidates.length === 1 ? 'exact' : candidates.length ? 'ambiguous' : 'none',
+        status: resolveStatus(q, candidates),
         candidates,
       });
     }

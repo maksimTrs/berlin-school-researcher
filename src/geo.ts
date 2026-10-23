@@ -108,6 +108,10 @@ export async function geocode(api: APIRequestContext, q: AddressQuery): Promise<
   return cands;
 }
 
+// единственный кандидат с другой улицей (geocode оставил «Am Waldidyll» на «Am Wald») — не exact, пусть skill переспросит
+export const resolveStatus = (q: AddressQuery, cands: Candidate[]) =>
+  cands.length === 1 && normStreet(cands[0].street) === normStreet(q.street) ? 'exact' : cands.length ? 'ambiguous' : 'none';
+
 // сужаем, только если сужение что-то оставляет — иначе показываем всех кандидатов
 const preferSome = <T>(xs: T[], pred: (x: T) => boolean) => (xs.some(pred) ? xs.filter(pred) : xs);
 
@@ -213,7 +217,10 @@ export function assignSchool(
   if (sorted.length > 1) {
     // часть районов нумерует зону по школе: зона 1105 ↔ школа 11G05
     const byCode = sorted.filter((s) => s.bsn.slice(0, 2) + s.bsn.slice(3) === esb);
-    return byCode.length === 1 ? { status: 'matched_by_code', schools: byCode } : { status: 'ambiguous', schools: sorted };
+    // остальные школы зоны остаются в отчёте кандидатами
+    return byCode.length === 1
+      ? { status: 'matched_by_code', schools: [byCode[0], ...sorted.filter((s) => s !== byCode[0])] }
+      : { status: 'ambiguous', schools: sorted };
   }
   return { status: 'no_school_in_zone', schools: nearest(all, from, 3) };
 }
@@ -284,8 +291,9 @@ export async function plzZones(api: APIRequestContext, q: PlzQuery): Promise<{ t
     }),
   );
   if (q.street) {
+    // ILIKE по префиксу ловит и «Am Waldidyll» для «Am Wald»: чужую улицу не выдаём за запрошенную — лучше not_found
     const street = normStreet(q.street);
-    addrs = preferSome(addrs, (a) => normStreet(a.street) === street);
+    addrs = addrs.filter((a) => normStreet(a.street) === street);
   }
   if (!addrs.length) return { total: 0, zones: [] };
 
@@ -297,19 +305,24 @@ export async function plzZones(api: APIRequestContext, q: PlzQuery): Promise<{ t
   const all = await primarySchools(api);
   return {
     total: addrs.length,
-    zones: groupByZone(addrs, zones).map(({ zone, addrs }) => ({
-      esb: zone.properties.esb,
-      esbText: zone.properties.esb_text ?? null,
+    zones: groupByZone(addrs, zones).map(({ zone, addrs }) => {
       // «ближайшие» для зоны без школы — к центру её адресов в этом PLZ
-      ...assignSchool(
+      const { status, schools } = assignSchool(
         zone.properties.esb,
         all.filter((s) => inGeometry([s.lon, s.lat], zone.geometry)),
         all,
         { lon: mean(addrs.map((a) => a.lon)), lat: mean(addrs.map((a) => a.lat)) },
         config.esbOverrides,
-      ),
-      addresses: addrs.length,
-      streets: streetsOf(addrs),
-    })),
+      );
+      return {
+        esb: zone.properties.esb,
+        esbText: zone.properties.esb_text ?? null,
+        status,
+        // в таблице зон PLZ нет роли «кандидат» — без выбранной пометки остальные школы читались бы как равные ей
+        schools: status === 'matched_by_code' ? schools.slice(0, 1) : schools,
+        addresses: addrs.length,
+        streets: streetsOf(addrs),
+      };
+    }),
   };
 }
