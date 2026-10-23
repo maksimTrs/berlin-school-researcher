@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
-import { Draft, verifyDraft, type Context } from './context.js';
+import { Draft, PlzDraft, verifyDraft, type Context, type Fetched, type PlzContext } from './context.js';
 import { KEY_FIGURES, keyFigure } from './extract.js';
 import { catchment, formatAddress, geocode, neighbors, plzZones, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
@@ -126,7 +126,7 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
 }
 
 /** Испорченный context.json не должен стоить отчёта после полного прогона браузера — тогда без блока фактов. */
-function readContext(dir: string): Context | null {
+function readContext<T = Context>(dir: string): T | null {
   try {
     return existsSync(join(dir, 'context.json')) ? JSON.parse(readFileSync(join(dir, 'context.json'), 'utf8')) : null;
   } catch (e) {
@@ -135,34 +135,47 @@ function readContext(dir: string): Context | null {
   }
 }
 
-/** Черновик Claude (context.draft.json) → каждый источник скачан и сверен → context.json и report.html заново. */
+const brief = (ctx: Context) => ({
+  bsn: ctx.bsn,
+  items: ctx.items.map(({ category, published, planned, summaryRu, url }) => ({ category, published, planned, summaryRu, url })),
+  rejected: ctx.rejected,
+});
+
+/**
+ * Черновик Claude (context.draft.json) → каждый источник скачан и сверен → context.json и report.html заново.
+ * Папка lookup — одна закреплённая школа; папка plz — по черновику на каждую школу зон.
+ */
 async function contextCmd() {
-  if (!args.dir) throw new Error('Нужен --dir out/<адрес> — папка отчёта из lookup');
+  if (!args.dir) throw new Error('Нужен --dir out/<адрес> — папка отчёта из lookup или plz');
   const dir = resolve(args.dir);
-  const result: AddressResult = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
-  const main = result.schools[0];
-  if (result.status !== 'ok' || !main) throw new Error(`${dir}: в result.json нет закреплённой школы`);
-  const draft = Draft.parse(JSON.parse(readFileSync(join(dir, 'context.draft.json'), 'utf8')));
+  const raw = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
+  const draftJson = JSON.parse(readFileSync(join(dir, 'context.draft.json'), 'utf8'));
   const api = await newApi();
+  const fetchUrl = async (url: string): Promise<Fetched> => {
+    const res = await api.get(url, { maxRedirects: 5, maxRetries: 1 });
+    return { url: res.url(), status: res.status(), contentType: res.headers()['content-type'] ?? '', body: await res.body() };
+  };
   try {
-    const ctx = await verifyDraft(draft, main.school, main.data.profile, async (url) => {
-      const res = await api.get(url, { maxRedirects: 5, maxRetries: 1 });
-      return { url: res.url(), status: res.status(), contentType: res.headers()['content-type'] ?? '', body: await res.body() };
-    });
+    if ('zones' in raw) {
+      const result = raw as PlzResult;
+      const ctx: PlzContext = { schools: [] };
+      for (const d of PlzDraft.parse(draftJson).schools) {
+        const s = result.schools.find((x) => x.school.bsn === d.bsn);
+        if (!s) throw new Error(`${d.bsn}: такой школы нет среди школ зон в result.json`);
+        ctx.schools.push(await verifyDraft(d, s.school, s.data.profile, fetchUrl, new Date(), config.context.plzMaxItemsPerSchool));
+      }
+      writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
+      writeFileSync(join(dir, 'report.html'), renderPlzReport(result, ctx));
+      console.log(JSON.stringify({ schools: ctx.schools.map(brief), report: join(dir, 'report.html') }, null, 2));
+      return;
+    }
+    const result = raw as AddressResult;
+    const main = result.schools[0];
+    if (result.status !== 'ok' || !main) throw new Error(`${dir}: в result.json нет закреплённой школы`);
+    const ctx = await verifyDraft(Draft.parse(draftJson), main.school, main.data.profile, fetchUrl);
     writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
     writeFileSync(join(dir, 'report.html'), renderReport(result, ctx));
-    console.log(
-      JSON.stringify(
-        {
-          bsn: ctx.bsn,
-          items: ctx.items.map(({ category, published, planned, summaryRu, url }) => ({ category, published, planned, summaryRu, url })),
-          rejected: ctx.rejected,
-          report: join(dir, 'report.html'),
-        },
-        null,
-        2,
-      ),
-    );
+    console.log(JSON.stringify({ ...brief(ctx), report: join(dir, 'report.html') }, null, 2));
   } finally {
     await api.dispose();
   }
@@ -265,7 +278,7 @@ async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | n
 
     const result: PlzResult = { ...base, status: 'ok', addresses: total, zones, schools, warnings };
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
-    writeFileSync(join(dir, 'report.html'), renderPlzReport(result));
+    writeFileSync(join(dir, 'report.html'), renderPlzReport(result, readContext<PlzContext>(dir)));
     return { result, dir };
   } finally {
     await api.dispose();

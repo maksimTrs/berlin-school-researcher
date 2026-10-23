@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { CATEGORIES, type Category, type Context } from './context.js';
+import { CATEGORIES, type Category, type Context, type PlzContext } from './context.js';
 import { KEY_FIGURES, keyFigure, PAGES, type PageKey } from './extract.js';
 import { formatAddress, type Candidate, type Catchment, type School, type ZoneShare } from './geo.js';
 import type { SchoolData, YearPage } from './portrait.js';
@@ -162,26 +162,37 @@ const MEANING: Record<Category, string> = {
     'Hort — продлёнка после уроков. Если у неё нет своих комнат, дети остаются в тех же классах, где учились утром, а мест в продлёнке может быть меньше, чем желающих.',
 };
 
-/** Проверенные кодом факты из официальных источников: одна строка на факт; цитата — только в context.json, пояснение — по темам. */
-function contextBlock(ctx: Context | null): string {
-  if (!ctx) return '';
-  const head = `<p class="note">Проверено ${esc(ctx.checkedAt.slice(0, 10))}: публикации с ${esc(ctx.window.publishedFrom)} и планы до ${esc(ctx.window.plannedTo)}, только официальные источники, каждый факт сверен с документом.</p>`;
-  const body = ctx.items.length
-    ? `<ul>${ctx.items
-        .map(
-          (i) => `<li><b>${esc(i.published)}</b> · ${esc(CATEGORIES[i.category])}: ${esc(i.summaryRu)}${i.planned ? ` <small>(план: ${esc(i.planned)})</small>` : ''}
+/** Строки фактов и пояснение по их темам; цитаты — только в context.json. */
+function factsList(ctx: Context): string {
+  return `<ul>${ctx.items
+    .map(
+      (i) => `<li><b>${esc(i.published)}</b> · ${esc(CATEGORIES[i.category])}: ${esc(i.summaryRu)}${i.planned ? ` <small>(план: ${esc(i.planned)})</small>` : ''}
           <small>${esc(SOURCE[i.source])}${link(i.url, i.host)}</small></li>`,
-        )
-        .join('')}</ul>
+    )
+    .join('')}</ul>
     <details><summary>💡 Что это обычно значит</summary>${[...new Set(ctx.items.map((i) => i.category))]
       .map((c) => `<p><b>${esc(CATEGORIES[c])}.</b> ${esc(MEANING[c])}</p>`)
-      .join('')}</details>`
-    : '<p>Сообщений о школе за этот период не найдено.</p>';
+      .join('')}</details>`;
+}
+
+const checkedNote = (ctx: Context) =>
+  `<p class="note">Проверено ${esc(ctx.checkedAt.slice(0, 10))}: публикации с ${esc(ctx.window.publishedFrom)} и планы до ${esc(ctx.window.plannedTo)}, только официальные источники, каждый факт сверен с документом.</p>`;
+
+/** Раздел фактов о закреплённой школе в отчёте по адресу. */
+function contextBlock(ctx: Context | null): string {
+  if (!ctx) return '';
   return `<section class="context">
   <h2>Что известно из официальных источников</h2>
-  ${body}
-  ${head}
+  ${ctx.items.length ? factsList(ctx) : '<p>Сообщений о школе за этот период не найдено.</p>'}
+  ${checkedNote(ctx)}
 </section>`;
+}
+
+/** Факты о школе в отчёте по PLZ — внутри блока школы, без своего заголовка раздела. */
+function plzFacts(ctx: Context | undefined): string {
+  if (!ctx) return '';
+  if (!ctx.items.length) return '<p class="note">Официальных сообщений о школе за период не найдено.</p>';
+  return `<div class="context"><p><b>Что известно из официальных источников</b></p>${factsList(ctx)}</div>`;
 }
 
 /** Поле профиля, которое опровергает свежее официальное сообщение, — с пометкой рядом. */
@@ -344,6 +355,7 @@ details { border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; 
 summary { cursor: pointer; font-weight: 600; }
 details img { display: block; margin-top: 8px; max-width: 100%; height: auto; }
 .startchancen details p { margin: 8px 0 0; }
+.context { display: grid; gap: 8px; min-width: 0; }
 .context ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
 .context p { margin: 0; }
 .context details p { margin: 6px 0 0; }
@@ -371,7 +383,9 @@ export const share = (n: number, total: number) => `${Math.round((100 * n) / tot
 
 export const plzTitle = (q: PlzQuery) => (q.street ? `${q.street}, ${q.plz}` : `PLZ ${q.plz}`);
 
-export function renderPlzReport(r: PlzResult): string {
+/** ctx — проверенный context.json по школам PLZ, если его собирали. */
+export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null): string {
+  const facts = new Map(ctx?.schools.map((c) => [c.bsn, c]));
   const data = new Map(r.schools.map((s) => [s.school.bsn, s.data]));
   const years = (r.schools[0]?.data.pages.vunt ?? []).map((y) => y.year);
   const outside = r.addresses - r.zones.reduce((n, z) => n + z.addresses, 0);
@@ -407,6 +421,7 @@ export function renderPlzReport(r: PlzResult): string {
         <div>${[link(d.portraitUrl, 'Schulporträt'), link(maps.place(s), 'Google Maps')].join(' · ')}</div>
         ${startchancenNote(s)}
         ${scoreBlock(d, (d.pages.vunt ?? []).map((y) => y.year))}
+        ${plzFacts(facts.get(s.bsn))}
       </section>`,
     )
     .join('');
@@ -451,6 +466,7 @@ ${outside ? `<p class="warn">⚠️ Адресов вне всех зон: ${out
 <section>
   <h2>Школы</h2>
   ${schoolSections}
+  ${ctx?.schools[0] ? checkedNote(ctx.schools[0]) : ''}
 </section>
 
 <section>

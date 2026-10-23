@@ -44,6 +44,10 @@ export const Draft = z
   .strict();
 export type Draft = z.infer<typeof Draft>;
 
+/** Черновик по PLZ — по записи на каждую школу зон. */
+export const PlzDraft = z.object({ schools: z.array(Draft).min(1) }).strict();
+export type PlzDraft = z.infer<typeof PlzDraft>;
+
 export type ContextItem = DraftItem & { host: string; source: 'official' | 'mirror' };
 export type Rejected = { url: string; summaryRu: string; reason: string };
 export type Context = {
@@ -54,6 +58,8 @@ export type Context = {
   items: ContextItem[]; // от новых к старым
   rejected: Rejected[];
 };
+
+export type PlzContext = { schools: Context[] };
 
 export type Fetched = { url: string; status: number; contentType: string; body: Buffer };
 
@@ -233,6 +239,7 @@ export async function verifyDraft(
   profile: Profile,
   fetchUrl: (url: string) => Promise<Fetched>,
   now = new Date(),
+  maxItems = config.context.maxItems,
 ): Promise<Context> {
   if (draft.bsn !== school.bsn) throw new Error(`context.draft.json для ${draft.bsn}, а закреплённая школа — ${school.bsn}`);
   const keys = schoolKeys(school);
@@ -310,7 +317,7 @@ export async function verifyDraft(
     ok.push({ ...item, host: new URL(page.final).hostname, source: kind });
   }
 
-  // компактность: новые первыми, не больше maxPerCategory в категории и maxItems всего
+  // компактность: новые первыми, не больше maxPerCategory в категории и maxItems всего (у PLZ — на школу)
   const items: ContextItem[] = [];
   const seen = new Set<string>();
   for (const item of ok.sort((a, b) => b.published.localeCompare(a.published))) {
@@ -319,7 +326,7 @@ export async function verifyDraft(
     if (seen.has(key)) reject('повтор');
     else if (items.filter((i) => i.category === item.category).length >= config.context.maxPerCategory)
       reject(`лимит: не больше ${config.context.maxPerCategory} в категории`);
-    else if (items.length >= config.context.maxItems) reject(`лимит: не больше ${config.context.maxItems} фактов`);
+    else if (items.length >= maxItems) reject(`лимит: не больше ${maxItems} фактов`);
     else items.push(item);
     seen.add(key);
   }

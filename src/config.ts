@@ -17,6 +17,7 @@ const Config = z.object({
     futureMonths: z.number().int().min(0), // план, который наступит не позже
     plannedMaxAgeMonths: z.number().int().min(1), // …но и сам план объявлен не раньше
     maxItems: z.number().int().min(1),
+    plzMaxItemsPerSchool: z.number().int().min(1), // в отчёте по PLZ школ несколько — фактов на каждую меньше
     maxPerCategory: z.number().int().min(1),
     officialSources: z.array(z.string()).min(1), // «домен[/начало пути]», домен — с поддоменами
     mirrorHosts: z.array(z.string()), // сайты фракций с копиями официальных ответов

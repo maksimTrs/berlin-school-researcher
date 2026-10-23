@@ -15,7 +15,7 @@
 - `npm run resolve -- --input input.json` или `--address "Straße Nr, PLZ"` — адрес → кандидаты (`resolve.json`), без браузера.
 - `npm run lookup -- --input input.json` — полный прогон → `out/<slug>/{result.json,report.html,screens/}`. Отладка: `--headed --slowmo 500`, `--trace`.
 - `npm run plz -- --plz 10439 [--street "Schivelbeiner Straße"]` — все зоны PLZ (или улицы в нём): доля адресов, школа и маркер каждой зоны → `out/plz-<plz>[-<улица>]/{result.json,report.html}`, без скриншотов.
-- `npm run context -- --dir out/<slug>` — черновик фактов `context.draft.json` (пишет skill `/school`) → каждый источник скачан, цитата сверена → `context.json` и заново `report.html`.
+- `npm run context -- --dir out/<slug>` — черновик фактов `context.draft.json` (пишут skills `/school` и `/school-plz`) → каждый источник скачан, цитата сверена → `context.json` и заново `report.html`. Папка `plz-…` — по черновику на каждую школу зон, до `plzMaxItemsPerSchool` фактов на школу.
 - `npm run canary` — эталонный адрес из `config/config.json` проходит весь путь; при поломке пишет подстраницу и поле.
 - `npm run preflight` — доступны ли критичные источники (WFS gdi.berlin.de, Schulverzeichnis). `lookup` и `canary` делают эту проверку сами и без неё не запускают браузер.
 - `npm run update:startchancen` — перезаписать снимок `config/startchancen.json` с berlin.de (когда `canary` сообщил, что список изменился), затем закоммитить.

@@ -17,7 +17,7 @@ import {
 } from '../../src/context.js';
 import type { Profile } from '../../src/extract.js';
 import type { School } from '../../src/geo.js';
-import { renderReport, type AddressResult } from '../../src/report.js';
+import { renderPlzReport, renderReport, type AddressResult, type PlzResult } from '../../src/report.js';
 
 // реальные источники: пресс-релиз округа (berlin.de) и ответ Bezirksamt на запрос в BVV (копия на сайте фракции)
 const PRESS_URL = 'https://www.berlin.de/ba-treptow-koepenick/aktuelles/pressemitteilungen/2026/pressemitteilung.1687371.php';
@@ -281,5 +281,49 @@ describe('report', () => {
   it('checked, nothing found — one line, not a missing block', async () => {
     const ctx = await verifyDraft(draft('07G32', []), BUERGEL, profile, fetchFixture, NOW);
     expect(renderReport(result, ctx)).toContain('Сообщений о школе за этот период не найдено.');
+  });
+});
+
+describe('PLZ', () => {
+  const school: School = { ...MELLI, schulart: 'Grundschule', address: '', ortsteil: 'Johannisthal', bezirk: '', phone: null, email: null, web: null, lon: 13.5, lat: 52.4 };
+  const other: School = { ...school, bsn: '09G07', name: 'Schule am Ginkobaum (Grundschule)' };
+  const data = (bsn: string) => ({ bsn, portraitUrl: 'https://example.org', profile, pages: {}, inspections: [], screenshots: [] });
+  const result: PlzResult = {
+    input: { plz: '12487', street: null },
+    generatedAt: NOW.toISOString(),
+    esbLayer: 'esb_2026',
+    status: 'ok',
+    addresses: 10,
+    zones: [
+      { esb: '0906', esbText: null, status: 'exact', schools: [school], addresses: 6, streets: [] },
+      { esb: '0907', esbText: null, status: 'exact', schools: [other], addresses: 4, streets: [] },
+    ],
+    schools: [
+      { school, data: data('09G06') },
+      { school: other, data: data('09G07') },
+    ],
+    warnings: [],
+  };
+  const quotes = [
+    'Die Fertigstellung des Erweiterungsbaus ist für Mitte 2027 geplant.',
+    'Im zweiten Bauabschnitt entsteht nun ein viergeschossiger Erweiterungsbau.',
+    'Bereits 2023 wurde ein temporärer Schulergänzungsbau in Containerbauweise errichtet und seit dem Schuljahr 2023/24 genutzt.',
+    'Insgesamt sollen alle Arbeiten bis 2029 abgeschlossen sein.',
+  ];
+
+  it('at most 3 facts per school; facts inside the block of their school; no context.json — report unchanged', async () => {
+    const items = quotes.map((quote, i) => item({ quote, category: i < 2 ? 'construction' : 'capacity', summaryRu: 'Пристройка и места в школе' }));
+    const melli = await verifyDraft(draft('09G06', items), MELLI, profile, fetchFixture, NOW, 3);
+    expect(melli.items).toHaveLength(3);
+    expect(melli.rejected.map((r) => r.reason)).toEqual(['лимит: не больше 3 фактов']);
+    const ginko = await verifyDraft(draft('09G07', []), other, profile, fetchFixture, NOW, 3);
+
+    expect(renderPlzReport(result)).not.toContain('Что известно');
+    const html = renderPlzReport(result, { schools: [melli, ginko] });
+    const melliBlock = html.slice(html.indexOf('<h3>Melli-Beese'), html.indexOf('<h3>Schule am Ginkobaum'));
+    expect(melliBlock).toContain('<b>Что известно из официальных источников</b>');
+    expect(melliBlock.match(/<li>/g)).toHaveLength(3);
+    expect(html.slice(html.indexOf('<h3>Schule am Ginkobaum'))).toContain('Официальных сообщений о школе за период не найдено.');
+    expect(html).toContain('Проверено 2026-10-23');
   });
 });

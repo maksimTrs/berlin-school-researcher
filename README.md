@@ -157,7 +157,7 @@ flowchart TD
 |---|---|
 | `npm run resolve -- --address "Kastanienallee 12"` | только адрес → кандидаты, без браузера |
 | `npm run lookup -- --input input.json` | полный прогон по файлу адресов (формат — в `SKILL.md`) |
-| `npm run context -- --dir out/<адрес>` | проверить `context.draft.json` по самим документам → `context.json` и заново `report.html` |
+| `npm run context -- --dir out/<адрес>` | проверить `context.draft.json` по самим документам → `context.json` и заново `report.html`; для папки `plz-…` — по каждой школе зон, до 3 фактов на школу |
 | `npm run canary` | эталонный адрес проходит весь путь; при поломке сайта называет подстраницу и поле; сверяет снимок Startchancen с berlin.de |
 | `npm run update:startchancen` | перезаписать снимок списка Startchancen (если `canary` сказал, что список изменился) и закоммитить |
 | `npm run preflight` | доступны ли критичные источники; `lookup` и `canary` проверяют это сами и при сбое не запускаются (exit code 2) |
