@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { KEY_FIGURES, keyFigure, PAGES, type PageKey } from './extract.js';
-import { formatAddress, type Candidate, type Catchment, type School } from './geo.js';
+import { formatAddress, type Candidate, type Catchment, type School, type ZoneShare } from './geo.js';
 import type { SchoolData, YearPage } from './portrait.js';
-import type { AddressQuery } from './schema.js';
+import type { AddressQuery, PlzQuery } from './schema.js';
 import { EMOJI, scoreSchool, verdict } from './score.js';
 import { startchancen } from './startchancen.js';
 
@@ -189,6 +189,53 @@ export function renderReport(r: AddressResult): string {
 
   const title = `Школа — ${addr.street} ${addr.house}${addr.suffix ?? ''}, ${addr.plz}`;
 
+  return page(title, `<main>
+<header style="display:grid;gap:6px">
+  <span class="eyebrow">Einschulbereich ${esc(c.esb ?? '—')} · слой ${esc(r.esbLayer)} · отчёт от ${esc(r.generatedAt.slice(0, 10))}</span>
+  <h1>${esc(main.data.profile.name || main.school.name)}</h1>
+  <div class="meta">Адрес: <b>${esc(formatAddress(addr))}</b> (${esc(addr.bezirk)})${r.input.raw ? ` · ввод: «${esc(r.input.raw)}»` : ''}</div>
+</header>
+
+${st.warn ? `<p class="warn">⚠️ ${esc(st.text)}.</p>` : `<p class="meta">${esc(st.text)}.</p>`}
+${
+  r.alternatives.length
+    ? `<p class="warn">⚠️ Адрес неоднозначен, взят первый вариант. Другие: ${r.alternatives.map((a) => esc(formatAddress(a))).join('; ')}.</p>`
+    : ''
+}
+
+<section>
+  <h2>Закреплённая школа · ${esc(main.school.bsn)}</h2>
+  <div>${schoolLinks(main.school, main.data, addr, true)}</div>
+  <p class="meta">Расстояние от адреса по прямой: ${main.school.distanceM ?? '—'} м</p>
+  ${startchancenNote(main.school)}
+  ${scoreBlock(main.data, years)}
+  <dl>${main.data.profile.fields.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+</section>
+
+<section>
+  <h2>Ключевые цифры за ${years.length} уч. года</h2>
+  ${summary}
+  <p class="note">Значения — как на bildung.berlin.de, без пересчёта. Дата данных у каждого блока своя (см. ниже).</p>
+</section>
+
+<section>
+  <h2>Подробно по годам</h2>
+  ${PAGES.map((p) => metricSection(p.key, main.data.pages[p.key])).join('')}
+</section>
+
+${othersTable}
+${r.warnings.map((w) => `<p class="warn">⚠️ ${esc(w)}</p>`).join('')}
+
+<section>
+  <h2>Скриншоты Schulporträt (текущий год)</h2>
+  ${shots}
+</section>
+</main>
+`);
+}
+
+/** Общая оболочка отчётов: head, шрифты, стили. */
+function page(title: string, body: string): string {
   return `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -241,47 +288,122 @@ details img { display: block; margin-top: 8px; max-width: 100%; height: auto; }
 .startchancen details p { margin: 8px 0 0; }
 @media (max-width: 560px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } }
 </style>
-<main>
-<header style="display:grid;gap:6px">
-  <span class="eyebrow">Einschulbereich ${esc(c.esb ?? '—')} · слой ${esc(r.esbLayer)} · отчёт от ${esc(r.generatedAt.slice(0, 10))}</span>
-  <h1>${esc(main.data.profile.name || main.school.name)}</h1>
-  <div class="meta">Адрес: <b>${esc(formatAddress(addr))}</b> (${esc(addr.bezirk)})${r.input.raw ? ` · ввод: «${esc(r.input.raw)}»` : ''}</div>
-</header>
-
-${st.warn ? `<p class="warn">⚠️ ${esc(st.text)}.</p>` : `<p class="meta">${esc(st.text)}.</p>`}
-${
-  r.alternatives.length
-    ? `<p class="warn">⚠️ Адрес неоднозначен, взят первый вариант. Другие: ${r.alternatives.map((a) => esc(formatAddress(a))).join('; ')}.</p>`
-    : ''
+${body}`;
 }
 
+// ---------- PLZ ----------
+
+export type PlzSchool = { school: School; data: SchoolData };
+
+export type PlzResult = {
+  input: PlzQuery;
+  generatedAt: string;
+  esbLayer: string;
+  status: 'ok' | 'not_found';
+  addresses: number; // все адреса PLZ (или улицы в нём) в реестре
+  zones: ZoneShare[]; // от большей доли адресов к меньшей
+  schools: PlzSchool[]; // школы всех зон без повторов
+  warnings: string[]; // школы, чей Schulporträt не загрузился
+};
+
+export const share = (n: number, total: number) => `${Math.round((100 * n) / total)} %`;
+
+export const plzTitle = (q: PlzQuery) => (q.street ? `${q.street}, ${q.plz}` : `PLZ ${q.plz}`);
+
+export function renderPlzReport(r: PlzResult): string {
+  const data = new Map(r.schools.map((s) => [s.school.bsn, s.data]));
+  const years = (r.schools[0]?.data.pages.vunt ?? []).map((y) => y.year);
+  const outside = r.addresses - r.zones.reduce((n, z) => n + z.addresses, 0);
+  // имя из WFS: в Schulporträt к названию приписан номер школы, а он в отчёте и так стоит рядом
+  const schoolName = (s: School) => s.name;
+  const marker = (s: School) => {
+    const d = data.get(s.bsn);
+    return d ? esc(verdict(scoreSchool(d)).text) : '<span class="nd">Schulporträt не загрузился</span>';
+  };
+
+  // две колонки без .summary: текст переносится, и маркер виден на телефоне без прокрутки
+  const zonesTable = `<table>
+    <thead><tr><th>Зона · адресов</th><th>Школа и маркер</th></tr></thead>
+    <tbody>${r.zones
+      .map((z) => {
+        const st = STATUS_TEXT[z.status];
+        return z.schools
+          .map(
+            (s, i) => `<tr>
+              ${i === 0 ? `<th scope="row" rowspan="${z.schools.length}">${esc(z.esb)}<br><small>${z.addresses} · ${share(z.addresses, r.addresses)}</small>${st.warn ? `<br><small class="bad">⚠️ ${esc(st.text)}</small>` : ''}</th>` : ''}
+              <td>${esc(schoolName(s))} <small>${esc(s.bsn)}${inStartchancen(s) ? ' · 🔶 Startchancen' : ''}</small><br>${marker(s)}</td>
+            </tr>`,
+          )
+          .join('');
+      })
+      .join('')}</tbody>
+  </table>`;
+
+  const schoolSections = r.schools
+    .map(
+      ({ school: s, data: d }) => `<section class="metric">
+        <h3>${esc(schoolName(s))} · ${esc(s.bsn)}</h3>
+        <div>${[link(d.portraitUrl, 'Schulporträt'), link(maps.place(s), 'Google Maps')].join(' · ')}</div>
+        ${startchancenNote(s)}
+        ${scoreBlock(d, (d.pages.vunt ?? []).map((y) => y.year))}
+      </section>`,
+    )
+    .join('');
+
+  const figuresTable = `<div class="scroll"><table class="summary">
+    <thead><tr><th>Школа</th>${KEY_FIGURES.map((k) => `<th>${esc(k.title)}</th>`).join('')}</tr></thead>
+    <tbody>${r.schools
+      .map((s) => `<tr><th scope="row">${esc(schoolName(s.school))} <small>${esc(s.school.bsn)}</small></th>${KEY_FIGURES.map((k) => `<td>${figure(s.data, k)}</td>`).join('')}</tr>`)
+      .join('')}</tbody>
+  </table></div>`;
+
+  // с улицей во вводе дома — главный ответ «какой номер в какой зоне», их раскрываем сразу
+  const streets = r.zones
+    .map(
+      (z) => `<details${r.input.street ? ' open' : ''}><summary>Зона ${esc(z.esb)} — адресов: ${z.addresses}</summary>
+        ${z.streets.map((s) => `<p><b>${esc(s.street)}</b>: ${esc(s.houses.join(', '))}</p>`).join('')}
+      </details>`,
+    )
+    .join('');
+
+  const where = r.input.street ? 'Адреса улицы в этом PLZ' : 'Адреса PLZ';
+  return page(`Школы — ${plzTitle(r.input)}`, `<main>
+<header style="display:grid;gap:6px">
+  <span class="eyebrow">Поиск по PLZ · слой ${esc(r.esbLayer)} · отчёт от ${esc(r.generatedAt.slice(0, 10))}</span>
+  <h1>Школы — ${esc(plzTitle(r.input))}</h1>
+  <div class="meta">${where} в реестре: <b>${r.addresses}</b> · зон Einschulbereich: <b>${r.zones.length}</b></div>
+</header>
+
+${
+  r.zones.length > 1
+    ? `<p class="warn">⚠️ ${where} делятся между ${r.zones.length} зонами — закреплённая школа зависит от номера дома. Узнайте точный адрес у арендодателя и проверьте его через /school.</p>`
+    : `<p class="meta">Все адреса — в одной зоне.</p>`
+}
+${outside ? `<p class="warn">⚠️ Адресов вне всех зон: ${outside}.</p>` : ''}
+
 <section>
-  <h2>Закреплённая школа · ${esc(main.school.bsn)}</h2>
-  <div>${schoolLinks(main.school, main.data, addr, true)}</div>
-  <p class="meta">Расстояние от адреса по прямой: ${main.school.distanceM ?? '—'} м</p>
-  ${startchancenNote(main.school)}
-  ${scoreBlock(main.data, years)}
-  <dl>${main.data.profile.fields.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+  <h2>Зоны и школы</h2>
+  ${zonesTable}
+  <p class="note">Доля — от числа адресов (домов) в реестре, не квартир: особняк и дом на 200 квартир считаются одинаково. Это не вероятность, что квартира попадёт в зону. Маркер — за ${years.length} уч. года, как в отчёте по адресу.</p>
 </section>
 
 <section>
-  <h2>Ключевые цифры за ${years.length} уч. года</h2>
-  ${summary}
-  <p class="note">Значения — как на bildung.berlin.de, без пересчёта. Дата данных у каждого блока своя (см. ниже).</p>
+  <h2>Школы</h2>
+  ${schoolSections}
 </section>
 
 <section>
-  <h2>Подробно по годам</h2>
-  ${PAGES.map((p) => metricSection(p.key, main.data.pages[p.key])).join('')}
+  <h2>Ключевые цифры — текущий учебный год</h2>
+  ${figuresTable}
+  <p class="note">Значения — как на bildung.berlin.de, без пересчёта.</p>
 </section>
 
-${othersTable}
+<section>
+  <h2>Улицы и дома по зонам</h2>
+  ${streets}
+</section>
+
 ${r.warnings.map((w) => `<p class="warn">⚠️ ${esc(w)}</p>`).join('')}
-
-<section>
-  <h2>Скриншоты Schulporträt (текущий год)</h2>
-  ${shots}
-</section>
 </main>
-`;
+`);
 }

@@ -1,8 +1,8 @@
-// Живые сервисы gdi.berlin.de, эталонные адреса S1–S5 (значения сняты 23.10.2026). Портрет школы проверяет `npm run canary`.
+// Живые сервисы gdi.berlin.de, эталонные адреса S1–S5 и PLZ S6–S7 (значения сняты 23.10.2026). Портрет школы проверяет `npm run canary`.
 import type { APIRequestContext } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { newApi } from '../src/config.js';
-import { catchment, geocode, neighbors } from '../src/geo.js';
+import { catchment, geocode, neighbors, plzZones } from '../src/geo.js';
 import { parseAddress } from '../src/schema.js';
 
 let api: APIRequestContext;
@@ -57,5 +57,28 @@ describe('smoke: address → catchment → school', { timeout: 30_000 }, () => {
     expect(c.esb).toBe('0108');
     expect(c.status).toBe('no_school_in_zone');
     expect(c.schools).toHaveLength(3);
+  });
+});
+
+describe('smoke: PLZ → zones', { timeout: 30_000 }, () => {
+  it('S6 PLZ 10625 → 473 addresses in 4 zones, 0401 (04G01) biggest', async () => {
+    const { total, zones } = await plzZones(api, { plz: '10625' });
+    expect(total).toBe(473);
+    expect(zones.map((z) => [z.esb, z.addresses])).toEqual([
+      ['0401', 319],
+      ['0404', 67],
+      ['0407', 54],
+      ['0455', 33],
+    ]);
+    expect(zones[0]).toMatchObject({ status: 'exact', schools: [{ bsn: '04G01' }] });
+  });
+
+  it('S7 Schivelbeiner Str., 10439 → street split: 1–22 in 0314, 23–49 in 0311', async () => {
+    const { total, zones } = await plzZones(api, { plz: '10439', street: 'Schivelbeiner Str.' });
+    expect(total).toBe(49);
+    expect(zones.map((z) => [z.esb, z.schools[0].bsn, z.streets[0].houses[0], z.streets[0].houses.at(-1)])).toEqual([
+      ['0311', '03G11', '23', '49'],
+      ['0314', '03G14', '1', '22'],
+    ]);
   });
 });

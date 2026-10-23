@@ -11,6 +11,13 @@ export const AddressQuery = z.object({
 });
 export type AddressQuery = z.infer<typeof AddressQuery>;
 
+// номер дома скрыт в объявлении — известны только PLZ и, может быть, улица
+export const PlzQuery = z.object({
+  plz: z.string().regex(/^\d{5}$/, 'PLZ — 5 цифр'),
+  street: z.string().min(2).nullish(),
+});
+export type PlzQuery = z.infer<typeof PlzQuery>;
+
 // адрес строкой, как в объявлении, — раскладывает parseAddress (покрыт тестами), а не модель
 const RawAddress = z.object({ raw: z.string().min(3) }).strict().transform((a, ctx) => {
   try {

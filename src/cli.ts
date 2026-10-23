@@ -3,11 +3,20 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
 import { KEY_FIGURES, keyFigure } from './extract.js';
-import { catchment, formatAddress, geocode, neighbors } from './geo.js';
+import { catchment, formatAddress, geocode, neighbors, plzZones, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
 import { firstLine, preflight } from './preflight.js';
-import { renderReport, type AddressResult, type SchoolEntry } from './report.js';
-import { Input, parseAddress, type AddressQuery } from './schema.js';
+import {
+  plzTitle,
+  renderPlzReport,
+  renderReport,
+  share,
+  type AddressResult,
+  type PlzResult,
+  type PlzSchool,
+  type SchoolEntry,
+} from './report.js';
+import { Input, parseAddress, PlzQuery, type AddressQuery } from './schema.js';
 import { scoreSchool, verdict } from './score.js';
 import { diffSchools, fetchStartchancen, saveSnapshot, startchancen } from './startchancen.js';
 
@@ -16,6 +25,8 @@ const { positionals, values: args } = parseArgs({
   options: {
     input: { type: 'string' },
     address: { type: 'string' },
+    plz: { type: 'string' },
+    street: { type: 'string' },
     out: { type: 'string', default: 'out' },
     headed: { type: 'boolean', default: false },
     slowmo: { type: 'string', default: '0' },
@@ -91,7 +102,7 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
       ];
       for (const { school, role } of plan) {
         try {
-          schools.push({ school, role, data: await collectSchool(page, school.bsn, role === 'main', screensDir) });
+          schools.push({ school, role, data: await collectSchool(page, school.bsn, role === 'main' ? 'full' : 'key', screensDir) });
         } catch (e) {
           // без основной школы отчёта нет; кандидат или сосед — только строка в отчёте
           if (role === 'main') throw e;
@@ -173,6 +184,87 @@ async function lookupCmd() {
   if (out.some((s) => s.status === 'error')) process.exitCode = 1;
 }
 
+/** Все зоны PLZ (или улицы в нём) → школа каждой зоны с маркером за 3 года, без скриншотов. */
+async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | null }> {
+  const api = await newApi();
+  try {
+    const { total, zones } = await plzZones(api, q);
+    const base = { input: q, generatedAt: new Date().toISOString(), esbLayer: config.esbLayer };
+    if (!total) {
+      return { result: { ...base, status: 'not_found', addresses: 0, zones: [], schools: [], warnings: [] }, dir: null };
+    }
+    const dir = resolve(args.out!, slugify(`plz ${q.plz} ${q.street ?? ''}`));
+    mkdirSync(dir, { recursive: true });
+    // одна школа бывает в нескольких зонах (ближайшая к двум зонам без своей школы) — собираем её один раз
+    const unique = [...new Map(zones.flatMap((z) => z.schools).map((s): [string, School] => [s.bsn, s])).values()];
+    const browser = await launchBrowser({
+      headed: args.headed!,
+      slowmo: Number(args.slowmo),
+      tracePath: args.trace ? join(dir, 'trace.zip') : null,
+    });
+    const schools: PlzSchool[] = [];
+    const warnings: string[] = [];
+    try {
+      const page = await browser.context.newPage();
+      for (const school of unique) {
+        try {
+          schools.push({ school, data: await collectSchool(page, school.bsn, 'score', dir) });
+        } catch (e) {
+          warnings.push(`${school.name} (${school.bsn}): Schulporträt не загрузился — ${firstLine(e)}`);
+        }
+      }
+    } finally {
+      await browser.close();
+    }
+
+    const result: PlzResult = { ...base, status: 'ok', addresses: total, zones, schools, warnings };
+    writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
+    writeFileSync(join(dir, 'report.html'), renderPlzReport(result));
+    return { result, dir };
+  } finally {
+    await api.dispose();
+  }
+}
+
+function summarizePlz({ result: r, dir }: { result: PlzResult; dir: string | null }) {
+  const data = new Map(r.schools.map((s) => [s.school.bsn, s.data]));
+  return {
+    input: plzTitle(r.input),
+    status: r.status,
+    addresses: r.addresses,
+    zones: r.zones.map((z) => ({
+      esb: z.esb,
+      addresses: z.addresses,
+      share: share(z.addresses, r.addresses),
+      catchmentStatus: z.status,
+      schools: z.schools.map((s) => {
+        const d = data.get(s.bsn);
+        return {
+          school: d?.profile.name || s.name,
+          bsn: s.bsn,
+          verdict: d ? verdict(scoreSchool(d)).text : null,
+          startchancen: startchancen().schools.includes(s.bsn),
+        };
+      }),
+    })),
+    outside: r.addresses - r.zones.reduce((n, z) => n + z.addresses, 0),
+    warnings: r.warnings,
+    report: dir && join(dir, 'report.html'),
+    result: dir && join(dir, 'result.json'),
+  };
+}
+
+async function plzCmd() {
+  const q = PlzQuery.parse({ plz: args.plz, street: args.street ?? null });
+  if (!(await sitesAvailable())) return;
+  try {
+    console.log(JSON.stringify(summarizePlz(await plzOne(q)), null, 2));
+  } catch (e) {
+    console.log(JSON.stringify({ input: plzTitle(q), status: 'error', error: firstLine(e) }, null, 2));
+    process.exitCode = 1;
+  }
+}
+
 /** Ежемесячная проверка: эталонный адрес проходит весь путь, ключевые подстраницы текущего года отдают данные. */
 async function canaryCmd() {
   if (!(await sitesAvailable())) return;
@@ -235,13 +327,16 @@ async function startchancenCmd() {
 const commands: Record<string, () => Promise<void>> = {
   resolve: resolveCmd,
   lookup: lookupCmd,
+  plz: plzCmd,
   canary: canaryCmd,
   preflight: preflightCmd,
   startchancen: startchancenCmd,
 };
 const cmd = commands[positionals[0]];
 if (!cmd) {
-  console.error('Использование: tsx src/cli.ts resolve|lookup|canary|preflight|startchancen [--input f.json | --address "..."] [--headed --slowmo N --trace]');
+  console.error(
+    'Использование: tsx src/cli.ts resolve|lookup|plz|canary|preflight|startchancen [--input f.json | --address "..." | --plz 10439 [--street "..."]] [--headed --slowmo N --trace]',
+  );
   process.exit(2);
 }
 await cmd();

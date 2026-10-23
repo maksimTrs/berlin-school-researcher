@@ -6,6 +6,7 @@
     "test": "vitest run tests/unit",
     "resolve": "tsx src/cli.ts resolve",
     "lookup": "tsx src/cli.ts lookup",
+    "plz": "tsx src/cli.ts plz",
     "canary": "tsx src/cli.ts canary",
     "test:smoke": "vitest run tests/smoke",
     "typecheck": "tsc --noEmit",

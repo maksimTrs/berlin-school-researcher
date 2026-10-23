@@ -14,6 +14,7 @@ import {
   type PageKey,
   type Profile,
 } from './extract.js';
+import { SCORES } from './score.js';
 
 const SCHULVERZEICHNIS = 'https://www.bildung.berlin.de/Schulverzeichnis/';
 
@@ -73,10 +74,17 @@ export const previousYears = (year: string, n: number) =>
   });
 
 /**
- * full = true: все подстраницы, тренд за config.trendYears лет, инспекция и полностраничные скриншоты текущего года в screensDir.
- * full = false: только текущий год подстраниц, нужных для KEY_FIGURES (компактная строка соседней школы).
+ * full: все подстраницы, тренд за config.trendYears лет, инспекция и полностраничные скриншоты текущего года в screensDir.
+ * score: подстраницы KEY_FIGURES за текущий год, тренд — у тех, по которым считается маркер (SCORES); без скриншотов.
+ * key: только текущий год подстраниц, нужных для KEY_FIGURES (компактная строка соседней школы).
  */
-export async function collectSchool(page: Page, bsn: string, full: boolean, screensDir: string): Promise<SchoolData> {
+export async function collectSchool(
+  page: Page,
+  bsn: string,
+  depth: 'full' | 'score' | 'key',
+  screensDir: string,
+): Promise<SchoolData> {
+  const full = depth === 'full';
   const portraitUrl = await openSchool(page, bsn);
   const result: SchoolData = {
     bsn,
@@ -102,13 +110,15 @@ export async function collectSchool(page: Page, bsn: string, full: boolean, scre
 
   if (full) await screenshot('Профиль школы', 'portrait');
   const keyPages = new Set<string>(KEY_FIGURES.map((k) => k.page));
+  const scorePages = new Set<string>(SCORES.map((s) => s.page));
   for (const p of PAGES) {
     if (!full && !keyPages.has(p.key)) continue;
     const html = await fetchHtml(p.path);
     const current = extractPage(html);
     const year = captionYear(current) ?? availableYears(html, p.path)[0] ?? 'текущий год';
     const years: YearPage[] = [{ year, data: current }];
-    if (full && p.trend && /^\d{4}\//.test(year)) {
+    const trend = full ? p.trend : depth === 'score' && scorePages.has(p.key);
+    if (trend && /^\d{4}\//.test(year)) {
       for (const y of previousYears(year, config.trendYears - 1)) {
         years.push({ year: y, data: forYear(extractPage(await fetchHtml(`${p.path}&jahr=${encodeURIComponent(y)}`)), y) });
       }

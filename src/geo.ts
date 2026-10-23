@@ -1,11 +1,11 @@
 import type { APIRequestContext } from 'playwright';
 import { config } from './config.js';
-import type { AddressQuery } from './schema.js';
+import type { AddressQuery, PlzQuery } from './schema.js';
 
 const WFS = 'https://gdi.berlin.de/services/wfs/';
 
 type Geometry = { type: string; coordinates: any };
-type Feature = { id: string; geometry: Geometry; properties: Record<string, any> };
+export type Feature = { id: string; geometry: Geometry; properties: Record<string, any> };
 
 async function getFeatures(
   api: APIRequestContext,
@@ -239,4 +239,77 @@ export async function catchment(api: APIRequestContext, addr: Candidate): Promis
 export async function neighbors(api: APIRequestContext, addr: Candidate, exclude: School[], n: number): Promise<School[]> {
   const skip = new Set(exclude.map((s) => s.bsn));
   return nearest((await primarySchools(api)).filter((s) => !skip.has(s.bsn)), addr, n);
+}
+
+// ---------- PLZ → зоны ----------
+
+export type PlzAddress = { street: string; house: number; suffix: string | null; lon: number; lat: number };
+
+/** Зона внутри PLZ: школа по тем же правилам, что для адреса, и дома индекса, которые в неё попали. */
+export type ZoneShare = Catchment & { addresses: number; streets: { street: string; houses: string[] }[] };
+
+/** Адреса → зоны, в которые они попадают, от большей группы к меньшей. Адрес вне всех зон не попадает никуда. */
+export function groupByZone(addrs: PlzAddress[], zones: Feature[]): { zone: Feature; addrs: PlzAddress[] }[] {
+  const groups = new Map<Feature, PlzAddress[]>();
+  for (const a of addrs) {
+    const zone = zones.find((z) => inGeometry([a.lon, a.lat], z.geometry));
+    if (zone) (groups.get(zone) ?? groups.set(zone, []).get(zone)!).push(a);
+  }
+  return [...groups].map(([zone, addrs]) => ({ zone, addrs })).sort((a, b) => b.addrs.length - a.addrs.length);
+}
+
+/** Номера домов по улицам, по возрастанию: «Schivelbeiner Straße» → ['1', '2', '3A', …]. */
+export function streetsOf(addrs: PlzAddress[]): ZoneShare['streets'] {
+  const sorted = [...addrs].sort(
+    (a, b) => a.street.localeCompare(b.street, 'de') || a.house - b.house || (a.suffix ?? '').localeCompare(b.suffix ?? ''),
+  );
+  const byStreet = new Map<string, string[]>();
+  for (const a of sorted) (byStreet.get(a.street) ?? byStreet.set(a.street, []).get(a.street)!).push(`${a.house}${a.suffix ?? ''}`);
+  return [...byStreet].map(([street, houses]) => ({ street, houses }));
+}
+
+const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+
+/** Все адреса PLZ (или одной улицы в нём) → зоны Einschulbereich, в которые они попадают, и школа каждой зоны. */
+export async function plzZones(api: APIRequestContext, q: PlzQuery): Promise<{ total: number; zones: ZoneShare[] }> {
+  const conds = [`plz=${cqlString(q.plz)}`];
+  if (q.street) conds.push(`str_name ILIKE ${cqlString(streetPattern(q.street))}`);
+  let addrs: PlzAddress[] = (await getFeatures(api, 'adressen_berlin', 'adressen_berlin', conds.join(' AND '), 'EPSG:4326')).map(
+    (f) => ({
+      street: f.properties.str_name,
+      house: f.properties.hnr,
+      suffix: f.properties.hnr_zusatz ?? null,
+      lon: f.geometry.coordinates[0],
+      lat: f.geometry.coordinates[1],
+    }),
+  );
+  if (q.street) {
+    const street = normStreet(q.street);
+    addrs = preferSome(addrs, (a) => normStreet(a.street) === street);
+  }
+  if (!addrs.length) return { total: 0, zones: [] };
+
+  // BBOX по адресам отдаёт и соседние зоны — лишние отсеет groupByZone
+  const lons = addrs.map((a) => a.lon);
+  const lats = addrs.map((a) => a.lat);
+  const bbox = [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)].join(',');
+  const zones = await getFeatures(api, 'esb', config.esbLayer, `BBOX(geom,${bbox},'EPSG:4326')`, 'EPSG:4326');
+  const all = await primarySchools(api);
+  return {
+    total: addrs.length,
+    zones: groupByZone(addrs, zones).map(({ zone, addrs }) => ({
+      esb: zone.properties.esb,
+      esbText: zone.properties.esb_text ?? null,
+      // «ближайшие» для зоны без школы — к центру её адресов в этом PLZ
+      ...assignSchool(
+        zone.properties.esb,
+        all.filter((s) => inGeometry([s.lon, s.lat], zone.geometry)),
+        all,
+        { lon: mean(addrs.map((a) => a.lon)), lat: mean(addrs.map((a) => a.lat)) },
+        config.esbOverrides,
+      ),
+      addresses: addrs.length,
+      streets: streetsOf(addrs),
+    })),
+  };
 }
