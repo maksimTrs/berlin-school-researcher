@@ -1,0 +1,107 @@
+# berlin-school-researcher
+
+Адрес квартиры в Берлине → закреплённая начальная школа (Einschulbereich) → показатели Schulporträt за 3 учебных года → HTML-отчёт со скриншотами, ссылками на Google Maps и отчёты инспекции.
+
+Показатели: отмены уроков, обеспеченность учителями, персонал, пропуски, иностранное гражданство, неродной немецкий, размер школы, откуда ученики. Источники открытые, ключи API не нужны: WFS Берлина (`gdi.berlin.de`) и [Schulverzeichnis](https://www.bildung.berlin.de/Schulverzeichnis/).
+
+## Как запустить
+
+| Где | Что сделать | Результат |
+|---|---|---|
+| Телефон / Claude Desktop / claude.ai/code | Code → Cloud → окружение `schools` → репозиторий `berlin-school-researcher` → сообщение `/school Katharinenstraße 3, 10711` | отчёт-artifact + итог в чат |
+| Claude Code локально | в папке репозитория: `/school каштаналее 12 пренцлауэр; Bergmannstr 5 Kreuzberg` | то же самое |
+| Терминал | `npm run lookup -- --address "Ruppiner Straße 47, 10115"` | `out/<адрес>/report.html` — открыть в браузере |
+
+`/school` понимает адрес в любом виде: кириллицей, с опечатками, без PLZ, несколько через `;`. Если адрес есть в нескольких районах — спросит, какой.
+
+## Настройка один раз
+
+**Локально** (Node 22+):
+
+```bash
+npm ci
+npx playwright install chromium
+npm test && npm run canary        # юнит-тесты и полный прогон эталонного адреса
+```
+
+**Облако:**
+
+1. Запушить репозиторий на GitHub (публичный).
+2. Claude Desktop → Code → Cloud → селектор окружения → **New environment**:
+   - Name: `schools`, Network access: **Full**, переменные не нужны;
+   - Setup script:
+     ```bash
+     #!/bin/bash
+     npx -y playwright@1.64.1 install --with-deps chromium || true
+     ```
+     Версия = `playwright` в `package.json`. Обновили пакет — обновите и скрипт.
+3. npm-зависимости в каждой сессии ставит SessionStart hook (`.claude/settings.json` → `scripts/install_pkgs.sh`).
+4. По желанию — ежемесячная проверка: Scheduled → New task, prompt `Запусти npm run canary. Если упало — опиши подстраницу и поле, предложи исправление. Ничего не коммить.`, cron `7 9 1 * *`.
+
+## Архитектура
+
+```mermaid
+flowchart TD
+    U["Ввод: /school адрес<br/>телефон · Desktop · терминал"] --> S
+
+    subgraph H["Claude: только края"]
+        S["skill /school<br/>разбор ввода → input.json"]
+        P["публикация artifact<br/>итог 3–5 строк в чат"]
+    end
+
+    S -->|"npm run resolve"| G
+    S -->|"npm run lookup"| G
+
+    subgraph C["Код src/ — детерминированный"]
+        G["geo.ts<br/>адрес → зона → школа → соседи"]
+        PT["portrait.ts<br/>Chromium-сессия · подстраницы × 3 года · скриншоты"]
+        E["extract.ts<br/>HTML → таблицы, год, Daten-Stand, н/д"]
+        R["report.ts<br/>result.json → report.html"]
+        G --> PT --> E --> R
+    end
+
+    W[("gdi.berlin.de WFS<br/>adressen_berlin · esb_2026 · schulen")] --> G
+    B[("bildung.berlin.de<br/>Schulporträt")] --> PT
+
+    R --> O["out/адрес/<br/>result.json · report.html · screens/*.png"]
+    O --> P
+```
+
+Принцип: Claude разбирает нечёткий ввод и публикует отчёт; цифры извлекает и рендерит код. Нет данных на сайте → «н/д — нет данных на сайте за <год>», без досчёта.
+
+Как школа находится по адресу: точка адреса → зона Einschulbereich (слой `esb_2026`) → публичная Grundschule/Gemeinschaftsschule внутри зоны. Официального сопоставления «зона → школа» в WFS нет, поэтому оно пространственное:
+
+| Ситуация | Статус | В отчёте |
+|---|---|---|
+| в зоне одна школа (~92 % зон) | `exact` | школа |
+| несколько, код зоны совпадает с номером школы (`1105` ↔ `11G05`) | `matched_by_code` | ⚠️ эта школа |
+| несколько без совпадения | `ambiguous` | ⚠️ все, полный блок — по ближайшей |
+| ни одной | `no_school_in_zone` | ⚠️ 3 ближайшие к адресу |
+| ручная поправка `esbOverrides` в `config/config.json` | `override` | школа из поправки |
+
+При любом ⚠️ закреплённую школу стоит уточнить в Schulamt района.
+
+| Файл | Что делает |
+|---|---|
+| `src/cli.ts` | команды `resolve`, `lookup`, `canary`, `preflight`; сбой одного адреса не останавливает остальные |
+| `src/preflight.ts` | проверка критичных источников до запуска браузера |
+| `src/geo.ts` | WFS: адрес, зона, выбор школы, соседи |
+| `src/portrait.ts` | браузер, поиск школы по номеру, загрузка подстраниц, скриншоты |
+| `src/extract.ts` | список подстраниц (`PAGES`) и ключевых цифр (`KEY_FIGURES`) — новая метрика = новая строка |
+| `src/report.ts` | HTML-отчёт |
+| `config/config.json` | слой зон, число лет, соседей, адресов, адрес для canary |
+| `.claude/skills/school/SKILL.md` | что делает Claude по `/school` |
+
+## Команды
+
+| Команда | Что |
+|---|---|
+| `npm run resolve -- --address "Kastanienallee 12"` | только адрес → кандидаты, без браузера |
+| `npm run lookup -- --input input.json` | полный прогон по файлу адресов (формат — в `SKILL.md`) |
+| `npm run canary` | эталонный адрес проходит весь путь; при поломке сайта называет подстраницу и поле |
+| `npm run preflight` | доступны ли критичные источники; `lookup` и `canary` проверяют это сами и при сбое не запускаются (exit code 2) |
+| `npm test` | юнит-тесты на сохранённом HTML, без сети |
+| `npm run test:smoke` | живые проверки адрес → зона → школа (S1–S5) |
+| `npm run typecheck` | проверка типов |
+
+Отладка: `--headed --slowmo 500` — видимый браузер; `--trace` → `npx playwright show-trace out/<адрес>/trace.zip`; `PWDEBUG=1` — Playwright Inspector.

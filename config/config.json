@@ -1,0 +1,9 @@
+{
+  "esbLayer": "esb_2026",
+  "trendYears": 3,
+  "neighbors": 2,
+  "maxAddresses": 5,
+  "defaultAddress": "Ruppiner Straße 47, 10115",
+  "viewport": { "width": 1440, "height": 900 },
+  "esbOverrides": {}
+}
