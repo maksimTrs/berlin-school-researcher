@@ -205,7 +205,7 @@ describe('report', () => {
     warnings: [],
   };
 
-  it('no context.json — no block; with it — facts, quote and a flag on the outdated profile field', async () => {
+  it('no context.json — no block; with it — facts without quotes and a flag on the outdated profile field', async () => {
     expect(renderReport(result)).not.toContain('Что известно из официальных источников');
     const welcome = item({
       category: 'welcome_classes',
@@ -219,7 +219,8 @@ describe('report', () => {
     const html = renderReport(result, ctx);
     expect(html).toContain('Что известно из официальных источников');
     expect(html).toContain('Классы для детей без немецкого: Новеньких без немецкого направляют в Nahariya-Grundschule');
-    expect(html).toContain('<blockquote lang="de">Für die übrigen');
+    expect(html).not.toContain('Für die übrigen'); // цитата — только в context.json
+    expect(html).toContain('<h2>Профиль и контакты школы</h2>');
     expect(html).toContain('⚠️ Возможно, устарело: 2026-02-18');
     expect(renderReport(result, { ...ctx, bsn: '09G06' })).not.toContain('Что известно');
     // пояснение — только к темам, которые есть в фактах

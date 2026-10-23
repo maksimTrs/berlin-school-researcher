@@ -162,27 +162,26 @@ const MEANING: Record<Category, string> = {
     'Hort — продлёнка после уроков. Если у неё нет своих комнат, дети остаются в тех же классах, где учились утром, а мест в продлёнке может быть меньше, чем желающих.',
 };
 
-/** Проверенные кодом факты из официальных источников: одна строка на факт, цитата — под спойлером, пояснение — по темам. */
+/** Проверенные кодом факты из официальных источников: одна строка на факт; цитата — только в context.json, пояснение — по темам. */
 function contextBlock(ctx: Context | null): string {
   if (!ctx) return '';
-  const head = `<p class="note">Проверено ${esc(ctx.checkedAt.slice(0, 10))}: публикации с ${esc(ctx.window.publishedFrom)} и планы до ${esc(ctx.window.plannedTo)}, только официальные источники, цитаты сверены с документом.</p>`;
-  if (!ctx.items.length) return `<div class="context"><h3>Что известно из официальных источников</h3><p>Сообщений о школе за этот период не найдено.</p>${head}</div>`;
-  return `<div class="context">
-    <h3>Что известно из официальных источников</h3>
-    <ul>${ctx.items
-      .map(
-        (i) => `<li>
-          <b>${esc(i.published)}</b> · ${esc(CATEGORIES[i.category])}: ${esc(i.summaryRu)}${i.planned ? ` <small>(план: ${esc(i.planned)})</small>` : ''}
-          <small>${esc(SOURCE[i.source])}${link(i.url, i.host)}</small>
-          <details><summary>Цитата</summary><blockquote lang="de">${esc(i.quote)}</blockquote></details>
-        </li>`,
-      )
-      .join('')}</ul>
-    <details><summary>Что это обычно значит</summary>${[...new Set(ctx.items.map((i) => i.category))]
+  const head = `<p class="note">Проверено ${esc(ctx.checkedAt.slice(0, 10))}: публикации с ${esc(ctx.window.publishedFrom)} и планы до ${esc(ctx.window.plannedTo)}, только официальные источники, каждый факт сверен с документом.</p>`;
+  const body = ctx.items.length
+    ? `<ul>${ctx.items
+        .map(
+          (i) => `<li><b>${esc(i.published)}</b> · ${esc(CATEGORIES[i.category])}: ${esc(i.summaryRu)}${i.planned ? ` <small>(план: ${esc(i.planned)})</small>` : ''}
+          <small>${esc(SOURCE[i.source])}${link(i.url, i.host)}</small></li>`,
+        )
+        .join('')}</ul>
+    <details><summary>💡 Что это обычно значит</summary>${[...new Set(ctx.items.map((i) => i.category))]
       .map((c) => `<p><b>${esc(CATEGORIES[c])}.</b> ${esc(MEANING[c])}</p>`)
-      .join('')}</details>
-    ${head}
-  </div>`;
+      .join('')}</details>`
+    : '<p>Сообщений о школе за этот период не найдено.</p>';
+  return `<section class="context">
+  <h2>Что известно из официальных источников</h2>
+  ${body}
+  ${head}
+</section>`;
 }
 
 /** Поле профиля, которое опровергает свежее официальное сообщение, — с пометкой рядом. */
@@ -261,7 +260,12 @@ ${
   <p class="meta">Расстояние от адреса по прямой: ${main.school.distanceM ?? '—'} м</p>
   ${startchancenNote(main.school)}
   ${scoreBlock(main.data, years)}
-  ${contextBlock(mainCtx)}
+</section>
+
+${contextBlock(mainCtx)}
+
+<section>
+  <h2>Профиль и контакты школы</h2>
   <dl>${main.data.profile.fields.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${profileValue(k, v, mainCtx)}</dd>`).join('')}</dl>
 </section>
 
@@ -339,12 +343,9 @@ details { border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; 
 summary { cursor: pointer; font-weight: 600; }
 details img { display: block; margin-top: 8px; max-width: 100%; height: auto; }
 .startchancen details p { margin: 8px 0 0; }
-.context { display: grid; gap: 8px; min-width: 0; }
 .context ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
-.context p, .context details { margin: 0; }
-.context details { margin-top: 4px; padding: 4px 10px; }
+.context p { margin: 0; }
 .context details p { margin: 6px 0 0; }
-.context blockquote { margin: 6px 0 2px; color: var(--muted); }
 @media (max-width: 560px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } }
 </style>
 ${body}`;
