@@ -33,7 +33,8 @@ export const KEY_FIGURES = [
 export type PageData = {
   status: 'ok' | 'no_data';
   caption: string;
-  rows: string[][];
+  rows: string[][]; // ячейка с colspan=n дополняется n-1 пустыми, чтобы колонки не съезжали
+  headRows: number; // первые строки из одних <th>
   dataStand: string | null;
 };
 
@@ -46,15 +47,22 @@ export function extractPage(html: string): PageData {
   const table = tableHtml ? parse(tableHtml).querySelector('table') : null;
   // в подписи незакрытый <b>…<b> — парсер теряет текст, берём регуляркой
   const caption = clean(parse(tableHtml?.match(/<caption[^>]*>([\s\S]*?)<\/caption>/)?.[1] ?? '').text);
-  const rows = (table?.querySelectorAll('tr') ?? [])
-    .map((tr) => tr.querySelectorAll('th,td').map((c) => clean(c.text)))
-    .filter((r) => r.some(Boolean));
-  const noData = !table || rows.length === 0 || table.text.includes('keine Daten verfügbar');
+  const parsed = (table?.querySelectorAll('tr') ?? [])
+    .map((tr) => ({
+      head: tr.querySelectorAll('td').length === 0,
+      cells: tr
+        .querySelectorAll('th,td')
+        .flatMap((c) => [clean(c.text), ...Array(Math.max(0, Number(c.getAttribute('colspan') ?? 1) - 1)).fill('')]),
+    }))
+    .filter((r) => r.cells.some(Boolean));
+  const firstBody = parsed.findIndex((r) => !r.head);
+  const noData = !table || parsed.length === 0 || table.text.includes('keine Daten verfügbar');
   const stand = root.querySelector('#ContentPlaceHolderMenuListe_HLinkKontaktGlobal')?.text.match(/Daten-Stand:\s*([^)]*)\)/);
   return {
     status: noData ? 'no_data' : 'ok',
     caption,
-    rows: noData ? [] : rows,
+    rows: noData ? [] : parsed.map((r) => r.cells),
+    headRows: noData ? 0 : firstBody === -1 ? parsed.length : firstBody,
     dataStand: clean(stand?.[1] ?? '') || null,
   };
 }
@@ -104,5 +112,8 @@ export function extractProfile(html: string): Profile {
 export function extractInspections(html: string, baseUrl: string): { label: string; url: string }[] {
   return parse(html)
     .querySelectorAll('a[href*="DokLoader.aspx?Schulinspektion="]')
-    .map((a: HTMLElement) => ({ label: clean(a.text), url: new URL(a.getAttribute('href')!, baseUrl).toString() }));
+    .map((a: HTMLElement) => ({ label: clean(a.text), url: new URL(a.getAttribute('href')!, baseUrl) }))
+    // в отчёт идут только https-ссылки на berlin.de — не javascript: и не чужой хост при подмене страницы
+    .filter(({ url }) => url.protocol === 'https:' && url.hostname.endsWith('.berlin.de'))
+    .map(({ label, url }) => ({ label, url: url.toString() }));
 }

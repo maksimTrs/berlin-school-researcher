@@ -77,7 +77,12 @@ export async function geocode(api: APIRequestContext, q: AddressQuery): Promise<
     };
   });
 
+  // ILIKE по префиксу ловит и «Am Waldidyll» для «Am Wald» — точное совпадение имени важнее
+  const street = streetPrefix(q.street).toLowerCase();
+  cands = preferSome(cands, (c) => streetPrefix(c.street).toLowerCase() === street);
   const suffix = q.suffix?.toLowerCase() ?? null;
+  // запрошенной буквы дома нет в реестре — не подменяем молча соседним домом, пусть skill переспросит
+  if (suffix && !cands.some((c) => c.suffix?.toLowerCase() === suffix)) return [];
   cands = preferSome(cands, (c) => (c.suffix?.toLowerCase() ?? null) === suffix);
   if (q.ortsteil) {
     const o = q.ortsteil.toLowerCase();

@@ -62,7 +62,10 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
     const candidates = await geocode(api, q);
     const base = { input: q, generatedAt: new Date().toISOString(), esbLayer: config.esbLayer };
     if (!candidates.length) {
-      return { result: { ...base, status: 'not_found', address: null, alternatives: [], catchment: null, schools: [] }, dir: null };
+      return {
+        result: { ...base, status: 'not_found', address: null, alternatives: [], catchment: null, schools: [], warnings: [] },
+        dir: null,
+      };
     }
     const [addr, ...alternatives] = candidates;
     const c = await catchment(api, addr);
@@ -77,6 +80,7 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
       tracePath: args.trace ? join(dir, 'trace.zip') : null,
     });
     const schools: SchoolEntry[] = [];
+    const warnings: string[] = [];
     try {
       const page = await browser.context.newPage();
       const plan = [
@@ -84,13 +88,19 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
         ...near.map((school) => ({ school, role: 'neighbor' as const })),
       ];
       for (const { school, role } of plan) {
-        schools.push({ school, role, data: await collectSchool(page, school.bsn, role === 'main', screensDir) });
+        try {
+          schools.push({ school, role, data: await collectSchool(page, school.bsn, role === 'main', screensDir) });
+        } catch (e) {
+          // без основной школы отчёта нет; кандидат или сосед — только строка в отчёте
+          if (role === 'main') throw e;
+          warnings.push(`${school.name} (${school.bsn}): Schulporträt не загрузился — ${firstLine(e)}`);
+        }
       }
     } finally {
       await browser.close();
     }
 
-    const result: AddressResult = { ...base, status: 'ok', address: addr, alternatives, catchment: c, schools };
+    const result: AddressResult = { ...base, status: 'ok', address: addr, alternatives, catchment: c, schools, warnings };
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
     writeFileSync(join(dir, 'report.html'), renderReport(result));
     return { result, dir };
@@ -115,7 +125,9 @@ function summarize({ result: r, dir }: { result: AddressResult; dir: string | nu
     esb: r.catchment?.esb ?? null,
     catchmentStatus: r.catchment?.status ?? null,
     school: main ? `${main.data.profile.name || main.school.name}` : null,
+    bsn: main?.school.bsn ?? null,
     candidates: r.schools.filter((s) => s.role === 'candidate').map((s) => `${s.school.name} (${s.school.bsn})`),
+    warnings: r.warnings,
     ausfall: current('ausfall'),
     ausfallBerlin: current('ausfallBerlin'),
     report: dir && join(dir, 'report.html'),

@@ -8,7 +8,7 @@
 
 | Где | Что сделать | Результат |
 |---|---|---|
-| Телефон / Claude Desktop / claude.ai/code | Code → Cloud → окружение `schools` → репозиторий `berlin-school-researcher` → сообщение `/school Katharinenstraße 3, 10711` | отчёт-artifact + итог в чат |
+| Телефон / Claude Desktop / claude.ai/code | Code → Cloud → окружение `berlin-school-researcher` → репозиторий `berlin-school-researcher`, ветка `main` → сообщение `/school Katharinenstraße 3, 10711` | отчёт-artifact + итог в чат |
 | Claude Code локально | в папке репозитория: `/school каштаналее 12 пренцлауэр; Bergmannstr 5 Kreuzberg` | то же самое |
 | Терминал | `npm run lookup -- --address "Ruppiner Straße 47, 10115"` | `out/<адрес>/report.html` — открыть в браузере |
 
@@ -24,19 +24,35 @@ npx playwright install chromium
 npm test && npm run canary        # юнит-тесты и полный прогон эталонного адреса
 ```
 
-**Облако:**
+**Облако — GitHub** (один раз): при первой облачной сессии claude.ai предложит подключить Claude GitHub App — для публичного репозитория этого достаточно (альтернатива из терминала — `/web-setup`).
 
-1. Запушить репозиторий на GitHub (публичный).
-2. Claude Desktop → Code → Cloud → селектор окружения → **New environment**:
-   - Name: `schools`, Network access: **Full**, переменные не нужны;
-   - Setup script:
-     ```bash
-     #!/bin/bash
-     npx -y playwright@1.64.1 install --with-deps chromium || true
-     ```
-     Версия = `playwright` в `package.json`. Обновили пакет — обновите и скрипт.
-3. npm-зависимости в каждой сессии ставит SessionStart hook (`.claude/settings.json` → `scripts/install_pkgs.sh`).
-4. По желанию — ежемесячная проверка: Scheduled → New task, prompt `Запусти npm run canary. Если упало — опиши подстраницу и поле, предложи исправление. Ничего не коммить.`, cron `7 9 1 * *`.
+**Облако — окружение** (один раз): Claude Desktop → Code → Cloud → селектор окружения под полем ввода → **New environment** (позже — навести на окружение → значок настроек → **Edit cloud environment**):
+
+| Поле | Значение |
+|---|---|
+| Name | `berlin-school-researcher` (любое) |
+| Network access | **Full** — иначе закрыты gdi.berlin.de и bildung.berlin.de |
+| Network secrets | не нужны |
+| Environment variables | не нужны |
+| Setup script | см. ниже — ставит Chromium и его системные библиотеки (кешируется) |
+
+```bash
+#!/bin/bash
+npx -y playwright@1.64.1 install --with-deps chromium
+```
+
+Без `|| true`: если установка не удалась, лучше увидеть это сразу при старте сессии, чем потом получить ошибку на каждом адресе. Версия = `playwright` в `package.json`. Обновили пакет — обновите и скрипт. npm-зависимости ставить не нужно: их в каждой сессии ставит SessionStart hook (`.claude/settings.json` → `scripts/install_pkgs.sh`).
+
+**Облако — каждый запуск:** внизу под полем ввода выбрать окружение `berlin-school-researcher` → репозиторий `<ваш-github>/berlin-school-researcher` → ветка `main` → режим **Auto** → отправить:
+
+```text
+/school Katharinenstraße 3, 10711
+/school Katharinenstraße 3, 10711; каштаналее 12 пренцлауэр
+```
+
+Ожидаемо: проверка доступности сайтов → ~20 с на адрес → ссылка на artifact и 3–5 строк итога. Модель — любая; Sonnet экономнее, вся тяжёлая работа в коде.
+
+**По желанию — ежемесячная проверка:** Code → Scheduled → New task → Set up manually; prompt `Запусти npm run canary. Если упало — опиши подстраницу и поле, предложи исправление. Ничего не коммить.`; cron `7 9 1 * *`; Repository и Cloud environment — как выше; Connectors — убрать все.
 
 ## Архитектура
 

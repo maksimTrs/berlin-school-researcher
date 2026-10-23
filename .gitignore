@@ -3,4 +3,5 @@ out/
 input.json
 resolve.json
 .idea/
+.claude/settings.local.json
 PLAN.md

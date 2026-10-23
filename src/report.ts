@@ -15,6 +15,7 @@ export type AddressResult = {
   alternatives: Candidate[];
   catchment: Catchment | null;
   schools: SchoolEntry[]; // [0] — main, полный блок
+  warnings: string[]; // кандидаты и соседи, чей Schulporträt не загрузился
 };
 
 // ---------- Google Maps URLs (без ключа) ----------
@@ -48,10 +49,12 @@ const STATUS_TEXT: Record<Catchment['status'], { text: string; warn: boolean }> 
 
 function yearTable(yp: YearPage): string {
   if (yp.data.status === 'no_data') return `<p class="nd">${esc(noData(yp.year))}</p>`;
-  const [head, ...body] = yp.data.rows;
+  const head = yp.data.rows.slice(0, yp.data.headRows);
+  const body = yp.data.rows.slice(yp.data.headRows);
+  const row = (r: string[], tag: string) => `<tr>${r.map((c) => `<${tag}>${esc(c)}</${tag}>`).join('')}</tr>`;
   return `<div class="scroll"><table>
-    <thead><tr>${head.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead>
-    <tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody>
+    ${head.length ? `<thead>${head.map((r) => row(r, 'th')).join('')}</thead>` : ''}
+    <tbody>${body.map((r) => row(r, 'td')).join('')}</tbody>
   </table></div>`;
 }
 
@@ -74,11 +77,16 @@ function metricSection(key: PageKey, years: YearPage[] | undefined): string {
   </section>`;
 }
 
-function figure(data: SchoolData, k: (typeof KEY_FIGURES)[number], yearIdx: number): string {
-  const yp = data.pages[k.page]?.[yearIdx];
-  if (!yp) return '—';
+/** year не задан — текущий год этой подстраницы (у подстраниц он может отличаться). */
+function figure(data: SchoolData, k: (typeof KEY_FIGURES)[number], year?: string): string {
+  const pages = data.pages[k.page];
+  const yp = year ? pages?.find((y) => y.year === year) : pages?.[0];
+  if (!yp) return year ? `<span class="nd">${esc(noData(year))}</span>` : '—';
   const v = keyFigure(yp.data, k.row, k.col);
-  return v === null ? `<span class="nd">${esc(noData(yp.year))}</span>` : esc(v);
+  if (v === null) return `<span class="nd">${esc(noData(yp.year))}</span>`;
+  // у Gemeinschaftsschule пропуски считаются по 7–10 классам — с 5–6 классами Grundschule напрямую не сравнить
+  const grades = k.page === 'fehl' ? yp.data.caption.match(/K\d+-\d+/)?.[0] : undefined;
+  return grades && grades !== 'K5-6' ? `${esc(v)} <small>(${esc(grades)})</small>` : esc(v);
 }
 
 function schoolLinks(s: School, data: SchoolData, home: Point, withInspections: boolean): string {
@@ -105,7 +113,7 @@ export function renderReport(r: AddressResult): string {
   const summary = `<div class="scroll"><table class="summary">
     <thead><tr><th>Показатель</th>${years.map((y) => `<th>${esc(y)}</th>`).join('')}</tr></thead>
     <tbody>${KEY_FIGURES.map(
-      (k) => `<tr><th scope="row">${esc(k.title)}</th>${years.map((_, i) => `<td>${figure(main.data, k, i)}</td>`).join('')}</tr>`,
+      (k) => `<tr><th scope="row">${esc(k.title)}</th>${years.map((y) => `<td>${figure(main.data, k, y)}</td>`).join('')}</tr>`,
     ).join('')}</tbody>
   </table></div>`;
 
@@ -119,7 +127,7 @@ export function renderReport(r: AddressResult): string {
             (o) => `<tr>
               <th scope="row">${esc(o.school.name)} <small>${esc(o.school.bsn)}</small><br><small>${schoolLinks(o.school, o.data, addr, false)}</small></th>
               <td>${ROLE[o.role]}</td><td>${o.school.distanceM ?? '—'} м</td>
-              ${KEY_FIGURES.map((k) => `<td>${figure(o.data, k, 0)}</td>`).join('')}
+              ${KEY_FIGURES.map((k) => `<td>${figure(o.data, k)}</td>`).join('')}
             </tr>`,
           )
           .join('')}</tbody>
@@ -214,6 +222,7 @@ ${
 </section>
 
 ${othersTable}
+${r.warnings.map((w) => `<p class="warn">⚠️ ${esc(w)}</p>`).join('')}
 
 <section>
   <h2>Скриншоты Schulporträt (текущий год)</h2>

@@ -17,7 +17,11 @@ export const Input = z.object({
 
 /** «Ruppiner Straße 47, 10115» / «Beusselstraße 44F 10553 Moabit» → AddressQuery. Свободный текст разбирает skill. */
 export function parseAddress(raw: string): AddressQuery {
-  const m = raw.trim().match(/^(.+?)\s+(\d+)\s*([a-zA-Z])?(?![a-zA-Z])[\s,]*(\d{5})?[\s,]*(.*)$/);
+  // номер дома — первое число, после которого идёт только [буква][-диапазон], затем PLZ и Ortsteil без цифр:
+  // так «Straße des 17. Juni 100» даёт дом 100, а «Joachim-Friedrich-Straße 35-36, 10711» — дом 35
+  const m = raw
+    .trim()
+    .match(/^(.+?)\s+(\d{1,4})\s*([a-zA-Z])?(?:\s*-\s*\d+[a-zA-Z]?)?(?:\s*,\s*|\s+|$)(\d{5})?[\s,]*([^\d]*)$/);
   if (!m) throw new Error(`Не разобран адрес: «${raw}». Ожидается «Straße Nr[, PLZ] [Ortsteil]»`);
   return AddressQuery.parse({
     raw,

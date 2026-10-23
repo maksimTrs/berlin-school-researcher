@@ -39,6 +39,13 @@ describe('extractPage', () => {
     expect(keyFigure(p, null, -1)).toBe('45,4');
   });
 
+  it('header rows: colspan padded, <th> rows counted; empty header row dropped', () => {
+    const ndh = extractPage(fixture('01G01_schuelerschaft_ndh'));
+    expect(ndh.headRows).toBe(2);
+    expect(ndh.rows[0]).toHaveLength(5); // 1 + colspan 4
+    expect(extractPage(fixture('01G01_management_vunt')).headRows).toBe(0);
+  });
+
   it('"keine Daten verfügbar" → no_data, no rows, key figure null', () => {
     const p = extractPage(fixture('01G24_fehl_nodata'));
     expect(p.status).toBe('no_data');
@@ -72,5 +79,11 @@ describe('portrait helpers', () => {
     expect(links[1].url).toBe(
       'https://www.bildung.berlin.de/Schulverzeichnis/DokLoader.aspx?Schulinspektion=01G01_B_20250501.pdf',
     );
+  });
+
+  it('extractInspections: drops non-https and foreign hosts', () => {
+    const html = `<a href="javascript:alert(1)//DokLoader.aspx?Schulinspektion=x">a</a>
+      <a href="https://evil.example/DokLoader.aspx?Schulinspektion=x">b</a>`;
+    expect(extractInspections(html, 'https://www.bildung.berlin.de/Schulverzeichnis/')).toEqual([]);
   });
 });
