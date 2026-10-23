@@ -25,7 +25,11 @@ async function getFeatures(
   });
   const res = await api.get(`${WFS}${service}?${params}`, { maxRetries: 2 });
   if (!res.ok()) throw new Error(`WFS ${service}: HTTP ${res.status()} ${await res.text()}`);
-  return (await res.json()).features;
+  const { features, numberMatched } = await res.json();
+  // сервер отдаёт не больше CountDefault (сейчас 1 000 000): урезанная выдача молча исказила бы доли зон PLZ
+  if (typeof numberMatched === 'number' && features.length < numberMatched)
+    throw new Error(`WFS ${service}: отдано ${features.length} из ${numberMatched} объектов`);
+  return features;
 }
 
 const cqlString = (s: string) => `'${s.replace(/'/g, "''")}'`;
@@ -108,9 +112,12 @@ export async function geocode(api: APIRequestContext, q: AddressQuery): Promise<
   return cands;
 }
 
-// единственный кандидат с другой улицей (geocode оставил «Am Waldidyll» на «Am Wald») — не exact, пусть skill переспросит
+/** Кандидаты на самой запрошенной улице: geocode оставляет и «Am Waldidyll» на «Am Wald», если точной нет. */
+export const onStreet = (q: AddressQuery, cands: Candidate[]) => cands.filter((c) => normStreet(c.street) === normStreet(q.street));
+
+// единственный кандидат с другой улицей — не exact, пусть skill переспросит
 export const resolveStatus = (q: AddressQuery, cands: Candidate[]) =>
-  cands.length === 1 && normStreet(cands[0].street) === normStreet(q.street) ? 'exact' : cands.length ? 'ambiguous' : 'none';
+  cands.length === 1 && onStreet(q, cands).length ? 'exact' : cands.length ? 'ambiguous' : 'none';
 
 // сужаем, только если сужение что-то оставляет — иначе показываем всех кандидатов
 const preferSome = <T>(xs: T[], pred: (x: T) => boolean) => (xs.some(pred) ? xs.filter(pred) : xs);
@@ -188,18 +195,20 @@ export type Catchment = {
   schools: School[]; // первая — основная для полного блока
 };
 
-// ray casting по внешнему кольцу каждого полигона; точность для точки школы внутри района достаточна
-function inGeometry([x, y]: [number, number], g: Geometry): boolean {
+// ray casting: точка во внешнем кольце полигона и ни в одной его дыре (анклав другой зоны)
+function inGeometry(p: [number, number], g: Geometry): boolean {
   const polygons: number[][][][] = g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates];
-  return polygons.some(([ring]) => {
-    let inside = false;
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const [xi, yi] = ring[i];
-      const [xj, yj] = ring[j];
-      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-    }
-    return inside;
-  });
+  return polygons.some(([outer, ...holes]) => inRing(p, outer) && !holes.some((h) => inRing(p, h)));
+}
+
+function inRing([x, y]: [number, number], ring: number[][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 /** Зона → школа: поправка > одна школа в зоне > совпадение кода зоны с bsn > все кандидаты; пустая зона → 3 ближайшие. */

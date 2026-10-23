@@ -1,7 +1,7 @@
 import type { APIRequestContext } from 'playwright';
 import { describe, expect, it } from 'vitest';
 import { config } from '../../src/config.js';
-import { geocode, plzZones, resolveStatus, type Feature } from '../../src/geo.js';
+import { geocode, groupByZone, onStreet, plzZones, resolveStatus, type Feature } from '../../src/geo.js';
 
 // WFS отвечает по слою из typeNames; CQL-фильтр не применяется — ответ задан таким, каким его вернул бы ILIKE по префиксу
 const fakeApi = (layers: Record<string, Feature[]>) =>
@@ -63,5 +63,29 @@ describe('plzZones', () => {
   it('matched_by_code zone lists only the matched school', async () => {
     const r = await plzZones(fakeApi(layers([address('Am Wald', 1, 13.4)])), { plz: '12357' });
     expect(r.zones.map((z) => [z.status, z.schools.map((s) => s.bsn)])).toEqual([['matched_by_code', ['01G10']]]);
+  });
+});
+
+describe('onStreet / WFS / zone holes', () => {
+  it('onStreet: lookup keeps only candidates on the requested street', async () => {
+    const q = { street: 'Am Wald', house: 3, plz: '12357' };
+    expect(onStreet(q, await geocode(fakeApi(layers([address('Am Waldidyll', 3, 13.4)])), q))).toEqual([]);
+    expect(onStreet(q, await geocode(fakeApi(layers([address('Am Wald', 3, 13.4)])), q)).map((c) => c.street)).toEqual(['Am Wald']);
+  });
+
+  it('a truncated WFS response is an error, not fewer addresses', async () => {
+    const api = {
+      get: async () => ({ ok: () => true, json: async () => ({ numberMatched: 3, features: [address('Am Wald', 1, 13.4)] }) }),
+    } as unknown as APIRequestContext;
+    await expect(plzZones(api, { plz: '12357' })).rejects.toThrow('отдано 1 из 3 объектов');
+  });
+
+  it('an address in a hole of zone A belongs to the enclave zone B', () => {
+    const square = (a: number, b: number) => [[a, a], [b, a], [b, b], [a, b], [a, a]];
+    const outer: Feature = { id: 'A', properties: { esb: 'A' }, geometry: { type: 'Polygon', coordinates: [square(0, 10), square(4, 6)] } };
+    const enclave: Feature = { id: 'B', properties: { esb: 'B' }, geometry: { type: 'Polygon', coordinates: [square(4, 6)] } };
+    const at = (lon: number) => ({ street: 'X', house: 1, suffix: null, lon, lat: lon });
+    const groups = groupByZone([at(5), at(1)], [outer, enclave]);
+    expect(Object.fromEntries(groups.map((g) => [g.zone.id, g.addrs.map((a) => a.lon)]))).toEqual({ A: [1], B: [5] });
   });
 });

@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
 import { ContextSchema, Draft, fetchFollowing, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
 import { KEY_FIGURES, keyFigure } from './extract.js';
-import { catchment, formatAddress, geocode, neighbors, plzZones, resolveStatus, type School } from './geo.js';
+import { catchment, formatAddress, geocode, neighbors, onStreet, plzZones, resolveStatus, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
 import { firstLine, preflight } from './preflight.js';
 import {
@@ -74,7 +74,8 @@ async function resolveCmd() {
 async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir: string | null }> {
   const api = await newApi();
   try {
-    const candidates = await geocode(api, q);
+    // соседняя улица («Am Waldidyll» на «Am Wald») — не этот адрес: not_found, skill вернётся к resolve
+    const candidates = onStreet(q, await geocode(api, q));
     const base = { input: q, generatedAt: new Date().toISOString(), esbLayer: config.esbLayer };
     if (!candidates.length) {
       return {
