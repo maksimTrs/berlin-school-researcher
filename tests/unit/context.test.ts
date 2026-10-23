@@ -11,7 +11,7 @@ import {
   fetchFollowing,
   findQuote,
   foreignNumbers,
-  hasDate,
+  isDocumentDate,
   mentionsSchool,
   normalize,
   outOfWindow,
@@ -24,7 +24,7 @@ import {
   type Fetched,
 } from '../../src/context.js';
 import type { Profile } from '../../src/extract.js';
-import type { School } from '../../src/geo.js';
+import type { Catchment, School } from '../../src/geo.js';
 import { renderPlzReport, renderReport, type AddressResult, type PlzResult } from '../../src/report.js';
 
 // реальные источники: пресс-релиз округа (berlin.de) и ответ Bezirksamt на запрос в BVV (копия на сайте фракции)
@@ -144,14 +144,21 @@ describe('checks', () => {
     expect(near(320)).toBe(false); // 1600 знаков между школой и цитатой
   });
 
-  it('hasDate: day and month precision', () => {
+  it('isDocumentDate: the first date in the header, day and month precision', () => {
     const text = normalize('Pressemitteilung vom 29.06.2026 · am 18. Februar 2026 · März 2025');
-    expect(hasDate(text, '2026-06-29')).toBe(true);
-    expect(hasDate(text, '2026-02-18')).toBe(true);
-    expect(hasDate(text, '2026-06')).toBe(true);
-    expect(hasDate(text, '2025-03')).toBe(true);
-    expect(hasDate(text, '2026-06-28')).toBe(false);
-    expect(hasDate(text, '2026-07')).toBe(false);
+    expect(isDocumentDate(text, '2026-06-29')).toBe(true);
+    expect(isDocumentDate(text, '2026-06')).toBe(true);
+    expect(isDocumentDate(text, '2026-06-28')).toBe(false);
+    expect(isDocumentDate(text, '2026-07')).toBe(false);
+    // дата дальше в шапке — не дата документа: план 2026 года в пресс-релизе 2024 года не становится свежим фактом
+    expect(isDocumentDate(text, '2026-02-18')).toBe(false);
+    expect(isDocumentDate(text, '2025-03')).toBe(false);
+    expect(isDocumentDate(normalize('Pressemitteilung vom 12.03.2024. Die Fertigstellung ist im August 2026 vorgesehen.'), '2026-08')).toBe(false);
+    // другие форматы первой даты
+    expect(isDocumentDate(normalize('Berlin, 18. Februar 2026. Antwort'), '2026-02-18')).toBe(true);
+    expect(isDocumentDate(normalize('Stand: Maerz 2026. Schulentwicklungsplan'), '2026-03')).toBe(true);
+    expect(isDocumentDate(normalize('Datum 2026-02-18, Drucksache'), '2026-02-18')).toBe(true);
+    expect(isDocumentDate(normalize('Ohne Datum'), '2026-02')).toBe(false);
   });
 
   it('foreignNumbers: the one-liner adds no numbers', () => {
@@ -232,7 +239,7 @@ describe('verifyDraft', () => {
     expect(ctx.rejected.map((r) => r.reason)).toEqual([
       'цитаты нет в источнике дословно',
       'в однострочнике числа, которых нет в цитате: 20',
-      'даты 2026-06-30 нет в шапке документа',
+      'первая дата в шапке документа — не 2026-06-30',
       'www.entwicklungsstadt.de/richtfest-an-der-melli-beese-schule/: не в списке официальных источников (config.context)',
       'источник не загрузился: getaddrinfo ENOTFOUND',
     ]);
@@ -263,7 +270,7 @@ describe('verifyDraft', () => {
   it('date only in the body text (a plan), not in the header, is rejected', async () => {
     // «Nach der Grundsteinlegung im Juni 2025» — в середине пресс-релиза от 29.06.2026
     const ctx = await verifyDraft(draft('09G06', [item({ published: '2025-06' })]), MELLI, profile, fetchFixture, new Date('2026-06-30T12:00:00Z'));
-    expect(ctx.rejected.map((r) => r.reason)).toEqual(['даты 2025-06 нет в шапке документа']);
+    expect(ctx.rejected.map((r) => r.reason)).toEqual(['первая дата в шапке документа — не 2025-06']);
   });
 
   it('a quote about a neighbouring school does not pass for this one', async () => {
@@ -436,6 +443,15 @@ describe('report', () => {
     schools: [{ school, role: 'main', data: { bsn: '07G32', portraitUrl: 'https://example.org', profile, pages: {}, inspections: [], screenshots: [] } }],
     warnings: [],
   };
+
+  it('the nearest school is not called assigned when the zone gives no school', () => {
+    const titled = (catchment: Catchment) => renderReport({ ...result, catchment }).match(/<h2>([^<]*) · 07G32<\/h2>/)?.[1];
+    expect(titled(result.catchment!)).toBe('Закреплённая школа');
+    expect(titled({ ...result.catchment!, status: 'matched_by_code' })).toBe('Вероятно закреплённая школа');
+    for (const status of ['no_school_in_zone', 'no_zone'] as const)
+      expect(titled({ ...result.catchment!, status, esb: status === 'no_zone' ? null : '0732' })).toBe('Ближайшая школа — закреплённая не определена');
+    expect(titled({ ...result.catchment!, status: 'ambiguous' })).toBe('Ближайшая из школ зоны — закреплённая не определена');
+  });
 
   it('no context.json — no block; with it — facts without quotes and a flag on the outdated profile field', async () => {
     expect(renderReport(result)).not.toContain('Что известно из официальных источников');

@@ -50,6 +50,16 @@ const STATUS_TEXT: Record<Catchment['status'], { text: string; warn: boolean }> 
   no_zone: { text: 'Адрес не попал ни в одну зону — показаны ближайшие школы', warn: true },
 };
 
+// заголовок основного блока: ближайшая школа без закрепления не называется закреплённой
+const MAIN_TITLE: Record<Catchment['status'], string> = {
+  exact: 'Закреплённая школа',
+  override: 'Закреплённая школа',
+  matched_by_code: 'Вероятно закреплённая школа',
+  ambiguous: 'Ближайшая из школ зоны — закреплённая не определена',
+  no_school_in_zone: 'Ближайшая школа — закреплённая не определена',
+  no_zone: 'Ближайшая школа — закреплённая не определена',
+};
+
 function yearTable(yp: YearPage): string {
   if (yp.data.status === 'no_data') return `<p class="nd">${esc(noData(yp.year))}</p>`;
   const head = yp.data.rows.slice(0, yp.data.headRows);
@@ -266,7 +276,7 @@ ${
 }
 
 <section>
-  <h2>Закреплённая школа · ${esc(main.school.bsn)}</h2>
+  <h2>${MAIN_TITLE[c.status]} · ${esc(main.school.bsn)}</h2>
   <div>${schoolLinks(main.school, main.data, addr, true)}</div>
   <p class="meta">Расстояние от адреса по прямой: ${main.school.distanceM ?? '—'} м</p>
   ${startchancenNote(main.school)}

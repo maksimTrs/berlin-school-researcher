@@ -201,17 +201,30 @@ export function mentionsSchool(text: string, at: { start: number; end: number },
 
 const MONTHS = ['januar', 'februar', 'märz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember'];
 
-/** Дата публикации стоит в самом документе: «29.06.2026», «18. Februar 2026», для месяца — и «Februar 2026». */
-export function hasDate(text: string, published: string): boolean {
+const MONTH_NAME = `(?<!\\p{L})(${MONTHS.join('|')}|maerz)(?!\\p{L})`;
+const monthNo = (name: string) => (name === 'maerz' ? 3 : MONTHS.indexOf(name) + 1);
+
+// «29.06.2026», «18. Februar 2026», «2026-02-18», «Februar 2026» → [год, месяц, день | null]
+const DATE_FORMATS: [RegExp, (m: RegExpExecArray) => [number, number, number | null]][] = [
+  [/(?<!\d)(\d{1,2})\.\s?(\d{1,2})\.\s?(\d{4})(?!\d)/u, (m) => [+m[3], +m[2], +m[1]]],
+  [new RegExp(`(?<!\\d)(\\d{1,2})\\.\\s*${MONTH_NAME}\\s+(\\d{4})(?!\\d)`, 'u'), (m) => [+m[3], monthNo(m[2]), +m[1]]],
+  [/(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/u, (m) => [+m[1], +m[2], +m[3]]],
+  [new RegExp(`${MONTH_NAME}\\s+(\\d{4})(?!\\d)`, 'u'), (m) => [+m[2], monthNo(m[1]), null]],
+];
+
+/**
+ * Дата публикации — первая дата в шапке («Pressemitteilung vom 29.06.2026», «… am 18.02.2026»), для месяца сверяется месяц.
+ * Дата плана дальше в тексте («Fertigstellung im August 2026») — не дата документа.
+ */
+export function isDocumentDate(header: string, published: string): boolean {
+  const first = DATE_FORMATS.map(([re, parse]) => {
+    const m = re.exec(header);
+    return m ? { at: m.index, date: parse(m) } : null;
+  })
+    .filter((f) => f !== null)
+    .sort((a, b) => a.at - b.at)[0];
   const [y, m, d] = published.split('-').map(Number);
-  const month = `(${MONTHS[m - 1]}${m === 3 ? '|maerz' : ''})`;
-  const day = d ? `0?${d}` : '\\d{1,2}';
-  return [
-    `(^|\\D)${day}\\.\\s?0?${m}\\.\\s?${y}(\\D|$)`,
-    `(^|\\D)${day}\\.\\s*${month}\\s+${y}(\\D|$)`,
-    d ? `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` : `${y}-${String(m).padStart(2, '0')}(\\D|$)`,
-    ...(d ? [] : [`${month}\\s+${y}(\\D|$)`]),
-  ].some((re) => new RegExp(re).test(text));
+  return !!first && first.date[0] === y && first.date[1] === m && (!d || first.date[2] === d);
 }
 
 const numbers = (s: string) => (s.match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => n.replace(',', '.'));
@@ -387,8 +400,8 @@ export async function verifyDraft(
       reject('рядом с цитатой школа не названа');
       continue;
     }
-    if (!hasDate(page.text.slice(0, HEADER), item.published)) {
-      reject(`даты ${item.published} нет в шапке документа`);
+    if (!isDocumentDate(page.text.slice(0, HEADER), item.published)) {
+      reject(`первая дата в шапке документа — не ${item.published}`);
       continue;
     }
     if (item.planned && !numbers(item.quote).includes(item.planned.slice(0, 4))) {
