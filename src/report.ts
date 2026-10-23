@@ -319,6 +319,7 @@ main { max-width: 1100px; margin: 0 auto; display: grid; gap: 28px; }
 h1, h2, h3 { font-family: var(--display); line-height: 1.2; text-wrap: balance; margin: 0; }
 h1 { font-size: 1.75rem; } h2 { font-size: 1.3rem; } h3 { font-size: 1.05rem; }
 section { display: grid; gap: 12px; min-width: 0; }
+main > p, section > p { margin: 0; } /* отступы задаёт gap сетки, а не поля абзацев */
 a { color: var(--accent); }
 small, .note, figcaption, .meta { color: var(--muted); font-size: .875rem; }
 .eyebrow { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
