@@ -76,11 +76,20 @@ export const forYear = (p: PageData, year: string): PageData => {
   return y && y !== year ? { ...p, status: 'no_data', rows: [], headRows: 0 } : p;
 };
 
-/** Последние учебные годы, на которые у подстраницы есть ссылки `path&jahr=…`, от нового к старому. */
-export function availableYears(html: string, path: string): string[] {
-  const years = new Set<string>();
-  for (const m of html.matchAll(/href="([^"]+)&(?:amp;)?jahr=(\d{4}\/\d{2})"/g)) if (m[1] === path) years.add(m[2]);
-  return [...years].sort().reverse();
+/**
+ * Учебные годы, на которые у подстраницы есть ссылки `path&jahr=…`, от нового к старому → значение `jahr` из ссылки.
+ * У части подстраниц к году приписан вариант («2024/25 (1.Shj K5-6)», «2024/25 (01.11.2024)»): на голый год у fehl сайт отвечает «keine Daten».
+ * Если вариантов у года несколько — тот, что в подписи текущей таблицы (то же полугодие), иначе первый в списке.
+ */
+export function availableYears(html: string, path: string, caption: string): Map<string, string> {
+  const years = new Map<string, string>();
+  for (const m of html.matchAll(/href="([^"]+)&(?:amp;)?jahr=((\d{4}\/\d{2})[^"]*)"/g)) {
+    if (m[1] !== path) continue;
+    const jahr = m[2].trim(); // «2004/05             » — пробелы по краям href браузер тоже отбрасывает
+    const variant = jahr.slice(m[3].length);
+    if (!years.has(m[3]) || (variant && caption.endsWith(variant))) years.set(m[3], jahr);
+  }
+  return new Map([...years].sort(([a], [b]) => b.localeCompare(a)));
 }
 
 export function keyFigure(p: PageData | undefined, row: string | null, col: number): string | null {

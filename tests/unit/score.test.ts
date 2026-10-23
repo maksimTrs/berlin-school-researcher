@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { extractPage, type PageData } from '../../src/extract.js';
 import type { SchoolData } from '../../src/portrait.js';
-import { scoreSchool, verdict } from '../../src/score.js';
+import { scoreProblems, scoreSchool, verdict } from '../../src/score.js';
 
 const fixture = (name: string) => extractPage(readFileSync(new URL(`../fixtures/${name}.html`, import.meta.url), 'utf8'));
 const table = (rows: string[][]): PageData => ({ status: 'ok', caption: '', rows, headRows: 0, dataStand: null });
@@ -63,6 +63,28 @@ describe('scoreSchool', () => {
     );
     expect(ausfall.years.map((y) => y.worse)).toEqual([null, null]);
     expect(verdict(scoreSchool(data({}))).light).toBe('nd');
+  });
+});
+
+describe('scoreProblems', () => {
+  const years3 = (f: (i: number) => PageData) => ['2025/26', '2024/25', '2023/24'].map((year, i) => ({ year, data: f(i) }));
+
+  it('01G01 fixtures in every trend year → no problems', () => {
+    const d = data({ vunt: years3(() => fixture('01G01_management_vunt')), uvers: years3(() => fixture('01G01_schulpersonal_uvers')) });
+    expect(scoreProblems(d, 3)).toEqual([]);
+  });
+
+  it('names subpage, year and field: past year no_data, missing Schulart row, not a number, too few years', () => {
+    const d = data({
+      vunt: years3((i) => [fixture('01G01_management_vunt'), fixture('01G24_fehl_nodata'), table([['Ausfall von Unterricht', '1,0%']])][i]),
+      uvers: [{ year: '2025/26', data: uvers('—') }],
+    });
+    expect(scoreProblems(d, 3)).toEqual([
+      'vunt 2024/25: «keine Daten» или таблица не найдена',
+      'vunt 2023/24: нет поля «Ausfall von Unterricht in der Schulart» (ausfall)',
+      'uvers: загружено лет 1, ожидалось 3',
+      'uvers 2025/26: не число «—» в поле «Bilanz in Stunden» (bilanz)',
+    ]);
   });
 });
 

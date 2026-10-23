@@ -43,6 +43,29 @@ export function scoreSchool(data: SchoolData): MetricScore[] {
   });
 }
 
+/**
+ * Для canary: у входов маркера за каждый год тренда есть таблица, значение и средняя по типу школ — числа.
+ * Иначе маркер молча считает такой год «н/д», и поломку на сайте никто не заметит.
+ */
+export function scoreProblems(data: SchoolData, trendYears: number): string[] {
+  return SCORES.flatMap((s) => {
+    const pages = data.pages[s.page] ?? [];
+    const problems = pages.length === trendYears ? [] : [`${s.page}: загружено лет ${pages.length}, ожидалось ${trendYears}`];
+    for (const yp of pages) {
+      if (yp.data.status === 'no_data') {
+        problems.push(`${s.page} ${yp.year}: «keine Daten» или таблица не найдена`);
+        continue;
+      }
+      for (const row of s.ref === null ? [s.row] : [s.row, s.ref]) {
+        const v = keyFigure(yp.data, row, s.col);
+        if (v === null) problems.push(`${s.page} ${yp.year}: нет поля «${row}» (${s.key})`);
+        else if (Number.isNaN(num(v))) problems.push(`${s.page} ${yp.year}: не число «${v}» в поле «${row}» (${s.key})`);
+      }
+    }
+    return problems;
+  });
+}
+
 const yearsWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'год' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'года' : 'лет');
 
 const RANK: Light[] = ['nd', 'green', 'yellow', 'red'];

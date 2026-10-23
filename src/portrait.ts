@@ -74,6 +74,13 @@ export const previousYears = (year: string, n: number) =>
   });
 
 /**
+ * Запросы по годам тренда: jahr = null — год текущей страницы, она уже загружена; иначе `jahr` из ссылки сайта,
+ * а без ссылки — сам год (если сайт отдаст другой год, forYear сделает «нет данных»).
+ */
+export const yearRequests = (years: string[], current: string, links: Map<string, string>) =>
+  years.map((year) => ({ year, jahr: year === current ? null : (links.get(year) ?? year) }));
+
+/**
  * full: все подстраницы, тренд за config.trendYears лет, инспекция и полностраничные скриншоты текущего года в screensDir.
  * score: подстраницы KEY_FIGURES за текущий год, тренд — у тех, по которым считается маркер (SCORES); без скриншотов.
  * key: только текущий год подстраниц, нужных для KEY_FIGURES (компактная строка соседней школы).
@@ -111,17 +118,21 @@ export async function collectSchool(
   if (full) await screenshot('Профиль школы', 'portrait');
   const keyPages = new Set<string>(KEY_FIGURES.map((k) => k.page));
   const scorePages = new Set<string>(SCORES.map((s) => s.page));
+  // годы тренда одни на все подстраницы — как у vunt (первая в PAGES), по ним колонки отчёта:
+  // на смене учебного года подстраницы переходят на новый год не одновременно
+  let trendYears: string[] = [];
   for (const p of PAGES) {
     if (!full && !keyPages.has(p.key)) continue;
     const html = await fetchHtml(p.path);
     const current = extractPage(html);
-    const year = captionYear(current) ?? availableYears(html, p.path)[0] ?? 'текущий год';
-    const years: YearPage[] = [{ year, data: current }];
+    const links = availableYears(html, p.path, current.caption);
+    const year = captionYear(current) ?? [...links.keys()][0] ?? 'текущий год';
+    if (p.key === 'vunt' && /^\d{4}\//.test(year)) trendYears = [year, ...previousYears(year, config.trendYears - 1)];
     const trend = full ? p.trend : depth === 'score' && scorePages.has(p.key);
-    if (trend && /^\d{4}\//.test(year)) {
-      for (const y of previousYears(year, config.trendYears - 1)) {
-        years.push({ year: y, data: forYear(extractPage(await fetchHtml(`${p.path}&jahr=${encodeURIComponent(y)}`)), y) });
-      }
+    const years: YearPage[] = [];
+    for (const r of trend && trendYears.length ? yearRequests(trendYears, year, links) : [{ year, jahr: null }]) {
+      const data = r.jahr === null ? current : forYear(extractPage(await fetchHtml(`${p.path}&jahr=${encodeURIComponent(r.jahr)}`)), r.year);
+      years.push({ year: r.year, data });
     }
     result.pages[p.key] = years;
     if (full) await screenshot(p.title, p.key, p.path);

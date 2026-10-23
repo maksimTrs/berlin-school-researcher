@@ -18,7 +18,7 @@ import {
   type SchoolEntry,
 } from './report.js';
 import { Input, parseAddress, PlzQuery, type AddressQuery } from './schema.js';
-import { scoreSchool, verdict } from './score.js';
+import { scoreProblems, scoreSchool, verdict } from './score.js';
 import { diffSchools, fetchStartchancen, saveSnapshot, startchancen } from './startchancen.js';
 
 const { positionals, values: args } = parseArgs({
@@ -313,7 +313,10 @@ async function plzCmd() {
   }
 }
 
-/** Ежемесячная проверка: эталонный адрес проходит весь путь, ключевые подстраницы текущего года отдают данные. */
+/**
+ * Ежемесячная проверка: эталонный адрес проходит весь путь, ключевые подстраницы текущего года отдают данные,
+ * входы маркера — за каждый год тренда.
+ */
 async function canaryCmd() {
   if (!(await sitesAvailable())) return;
   const problems: string[] = [];
@@ -334,6 +337,7 @@ async function canaryCmd() {
       else if (yp.data.status === 'no_data') problems.push(`${k.page} ${yp.year}: «keine Daten» или таблица не найдена`);
       else if (keyFigure(yp.data, k.row, k.col) === null) problems.push(`${k.page} ${yp.year}: нет поля «${k.row ?? 'последняя строка'}» (${k.key})`);
     }
+    problems.push(...scoreProblems(main.data, config.trendYears));
     if (main.data.screenshots.length !== 10) problems.push(`скриншотов ${main.data.screenshots.length}, ожидалось 10`);
   }
   // снимок списка Startchancen в репозитории ещё совпадает с сайтом
@@ -350,7 +354,8 @@ async function canaryCmd() {
   } finally {
     await api.dispose();
   }
-  console.log(JSON.stringify({ ok: problems.length === 0, problems, summary: run && summarize(run) }, null, 2));
+  // «keine Daten» текущего года vunt называют и KEY_FIGURES, и scoreProblems — одной строкой
+  console.log(JSON.stringify({ ok: problems.length === 0, problems: [...new Set(problems)], summary: run && summarize(run) }, null, 2));
   if (problems.length) process.exitCode = 1;
 }
 

@@ -9,6 +9,7 @@ import {
   forYear,
   keyFigure,
 } from '../../src/extract.js';
+import { yearRequests } from '../../src/portrait.js';
 
 const fixture = (name: string) => readFileSync(new URL(`../fixtures/${name}.html`, import.meta.url), 'utf8');
 
@@ -69,8 +70,48 @@ describe('extractPage', () => {
 
 describe('portrait helpers', () => {
   it('availableYears: only links of the given subpage, newest first', () => {
-    const years = availableYears(fixture('01G01_management_vunt'), 'management.aspx?view=vunt');
-    expect(years.slice(0, 3)).toEqual(['2025/26', '2024/25', '2023/24']);
+    const years = availableYears(fixture('01G01_management_vunt'), 'management.aspx?view=vunt', 'Vertretungsunterricht 2025/26');
+    expect([...years].slice(0, 3)).toEqual([
+      ['2025/26', '2025/26'],
+      ['2024/25', '2024/25'],
+      ['2023/24', '2023/24'],
+    ]);
+  });
+
+  it('availableYears: year with a suffix → the exact jahr value of the link', () => {
+    const uvers = availableYears(fixture('01G01_schulpersonal_uvers'), 'schulpersonal.aspx?view=uvers', 'Unterrichtsversorgung 2025/26 (01.11.2025)');
+    expect(uvers.get('2024/25')).toBe('2024/25 (01.11.2024)');
+    const html = fixture('01G01_schuelerschaft_fehl');
+    const fehl = availableYears(html, 'schuelerschaft.aspx?view=fehl', extractPage(html).caption);
+    expect([...fehl.keys()].slice(0, 3)).toEqual(['2025/26', '2024/25', '2023/24']);
+    expect(fehl.get('2024/25')).toBe('2024/25 (1.Shj K5-6)');
+    expect(fehl.get('2004/05')).toBe('2004/05'); // пробелы-заполнители в конце href отброшены
+  });
+
+  it('availableYears: several variants of a year → the half of the current caption, else the first link', () => {
+    const fehl = availableYears(fixture('01G01_schuelerschaft_fehl'), 'schuelerschaft.aspx?view=fehl', 'Fehlzeiten 2025/26 (2.Shj K5-6)');
+    expect(fehl.get('2018/19')).toBe('2018/19 (2.Shj K5-6)');
+    expect(fehl.get('2019/20')).toBe('2019/20 (1.Shj K5-6)'); // 2.Shj за этот год нет
+    const bare = availableYears(fixture('01G24_fehl_nodata'), 'schuelerschaft.aspx?view=fehl', 'Fehlzeiten 2008/09');
+    expect(bare.get('2018/19')).toBe('2018/19 (1.Shj K5-6)');
+  });
+
+  it('yearRequests: every trend year, current page reused, others by the exact jahr', () => {
+    const html = fixture('01G01_schuelerschaft_fehl');
+    const links = availableYears(html, 'schuelerschaft.aspx?view=fehl', extractPage(html).caption);
+    expect(yearRequests(['2025/26', '2024/25', '2023/24'], '2025/26', links)).toEqual([
+      { year: '2025/26', jahr: null },
+      { year: '2024/25', jahr: '2024/25 (1.Shj K5-6)' },
+      { year: '2023/24', jahr: '2023/24 (1.Shj K5-6)' },
+    ]);
+  });
+
+  it('yearRequests: page still on last year at the rollover → same years as vunt, not its own', () => {
+    const links = new Map([['2024/25', '2024/25 (01.11.2024)'], ['2023/24', '2023/24 (01.11.2023)']]);
+    expect(yearRequests(['2025/26', '2024/25'], '2024/25', links)).toEqual([
+      { year: '2025/26', jahr: '2025/26' }, // ссылки нет — сам год; чужой год в ответе forYear сделает «нет данных»
+      { year: '2024/25', jahr: null },
+    ]);
   });
 
   it('extractProfile: name and non-empty fields', () => {
