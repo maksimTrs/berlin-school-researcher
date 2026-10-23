@@ -1,0 +1,32 @@
+name: CI
+
+# Быстрая проверка на коммит: типы и юнит-тесты на сохранённом HTML. Без сети к berlin.de и без браузера —
+# живые сайты проверяют `npm run test:smoke` и ежемесячный `npm run canary`.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22 # как в облачной сессии Claude Code
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test

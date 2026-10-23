@@ -120,4 +120,6 @@ flowchart TD
 | `npm run test:smoke` | живые проверки адрес → зона → школа (S1–S5) |
 | `npm run typecheck` | проверка типов |
 
+CI (`.github/workflows/ci.yml`) на каждый push и PR в `main`: `npm ci` → `typecheck` → `npm test`, около 30 с. Живые сайты в CI не трогаем — их проверяют `test:smoke` и `canary`.
+
 Отладка: `--headed --slowmo 500` — видимый браузер; `--trace` → `npx playwright show-trace out/<адрес>/trace.zip`; `PWDEBUG=1` — Playwright Inspector.

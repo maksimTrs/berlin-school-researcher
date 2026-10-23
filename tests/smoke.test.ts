@@ -28,6 +28,17 @@ describe('smoke: address → catchment → school', { timeout: 30_000 }, () => {
     expect(await geocode(api, parseAddress('Kastanienallee 12'))).toHaveLength(7);
   });
 
+  it('S2b Kastanienallee 12 + listing district hint, no PLZ → 1 candidate', async () => {
+    const cands = await geocode(api, parseAddress('Kastanienallee 12, Prenzlauer Berg (Prenzlauer Berg)'));
+    expect(cands).toHaveLength(1);
+    expect(cands[0]).toMatchObject({ plz: '10435', ortsteil: 'Prenzlauer Berg' });
+  });
+
+  it('S2c ß/ss spelling: Grossbeerenstrasse 5 finds Großbeerenstraße', async () => {
+    const [c] = await geocode(api, parseAddress('Grossbeerenstrasse 5, 12107'));
+    expect(c?.street).toBe('Großbeerenstraße');
+  });
+
   it('S3 Kastanienallee 12, 10435 → Prenzlauer Berg (Pankow)', async () => {
     const [c, ...rest] = await geocode(api, parseAddress('Kastanienallee 12, 10435'));
     expect(rest).toHaveLength(0);

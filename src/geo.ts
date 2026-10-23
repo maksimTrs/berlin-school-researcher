@@ -47,11 +47,31 @@ export type Candidate = {
 
 export const formatAddress = (c: Candidate) => `${c.street} ${c.house}${c.suffix ?? ''}, ${c.plz} ${c.ortsteil}`;
 
-// «Bergmannstr.», «Ruppiner Strasse» → префикс для ILIKE, совпадает с «…straße» в реестре
-const streetPrefix = (street: string) => street.trim().replace(/(straße|strasse|str\.?)$/i, 'str');
+// ß/ss и умлауты/ae-oe-ue пишут как угодно — сравниваем после свёртки
+const fold = (s: string) =>
+  s.trim().toLowerCase().replace(/ß/g, 'ss').replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue');
+
+/** «Bergmannstr.», «Ruppiner Strasse», «Ruppiner Straße» → «bergmannstr», «ruppiner str» */
+export const normStreet = (street: string) => fold(street).replace(/(strasse|str\.?)$/, 'str');
+
+/** ILIKE-шаблон: ss/ae/oe/ue → «%», чтобы «Grossbeerenstr» нашла «Großbeerenstraße»; лишнее отсеет normStreet */
+export const streetPattern = (street: string) => normStreet(street).replace(/ss|ae|oe|ue/g, '%') + '%';
+
+/**
+ * Хвост адреса из объявления → признак района: «Berlin, Halensee (Wilmersdorf)», «Prenzlauer Berg (Prenzlauer Berg)»,
+ * «Berlin - Moabit». В скобках ImmoScout пишет старый (до 2001) округ — он тоже часть названия района или Ortsteil.
+ */
+export const inArea = (ortsteilQuery: string, c: Pick<Candidate, 'ortsteil' | 'bezirk'>) => {
+  const area = fold(`${c.ortsteil} ${c.bezirk}`);
+  return fold(ortsteilQuery)
+    .split(/[,()/–-]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 3 && t !== 'berlin')
+    .some((t) => area.includes(t));
+};
 
 export async function geocode(api: APIRequestContext, q: AddressQuery): Promise<Candidate[]> {
-  const conds = [`str_name ILIKE ${cqlString(streetPrefix(q.street) + '%')}`, `hnr=${q.house}`];
+  const conds = [`str_name ILIKE ${cqlString(streetPattern(q.street))}`, `hnr=${q.house}`];
   if (q.plz) conds.push(`plz=${cqlString(q.plz)}`);
   const cql = conds.join(' AND ');
   // CQL-фильтры других слоёв принимают точку в родной EPSG:25833, а ссылкам Google Maps нужны lon/lat
@@ -78,16 +98,13 @@ export async function geocode(api: APIRequestContext, q: AddressQuery): Promise<
   });
 
   // ILIKE по префиксу ловит и «Am Waldidyll» для «Am Wald» — точное совпадение имени важнее
-  const street = streetPrefix(q.street).toLowerCase();
-  cands = preferSome(cands, (c) => streetPrefix(c.street).toLowerCase() === street);
+  const street = normStreet(q.street);
+  cands = preferSome(cands, (c) => normStreet(c.street) === street);
   const suffix = q.suffix?.toLowerCase() ?? null;
   // запрошенной буквы дома нет в реестре — не подменяем молча соседним домом, пусть skill переспросит
   if (suffix && !cands.some((c) => c.suffix?.toLowerCase() === suffix)) return [];
   cands = preferSome(cands, (c) => (c.suffix?.toLowerCase() ?? null) === suffix);
-  if (q.ortsteil) {
-    const o = q.ortsteil.toLowerCase();
-    cands = preferSome(cands, (c) => c.ortsteil.toLowerCase().includes(o) || c.bezirk.toLowerCase().includes(o));
-  }
+  if (q.ortsteil) cands = preferSome(cands, (c) => inArea(q.ortsteil!, c));
   return cands;
 }
 
