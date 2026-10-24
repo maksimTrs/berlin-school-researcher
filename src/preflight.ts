@@ -7,7 +7,8 @@ const wfs = (service: string, layer: string) =>
 /** Только источники, без которых отчёт не собрать. Google Maps — лишь ссылки в отчёте, его не проверяем. */
 const CHECKS = [
   { name: 'Адресный реестр (WFS adressen_berlin)', url: wfs('adressen_berlin', 'adressen_berlin'), expect: 'FeatureCollection' },
-  { name: `Зоны Einschulbereich (WFS esb:${config.esbLayer})`, url: wfs('esb', config.esbLayer), expect: 'FeatureCollection' },
+  // слой текущего учебного года (по дате): с 1 августа — новый; не опубликован — ошибка, а не прошлогодние зоны
+  { name: `Зоны Einschulbereich текущего учебного года (WFS esb:${config.esbLayer})`, url: wfs('esb', config.esbLayer), expect: 'FeatureCollection' },
   { name: 'Школы (WFS schulen)', url: wfs('schulen', 'schulen'), expect: 'FeatureCollection' },
   { name: 'Schulverzeichnis (поиск школы)', url: 'https://www.bildung.berlin.de/Schulverzeichnis/', expect: 'txtSuchbegriff' },
 ];

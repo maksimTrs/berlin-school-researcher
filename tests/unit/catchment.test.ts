@@ -55,6 +55,20 @@ describe('assignSchool', () => {
     expect([r.status, r.schools.map((s) => s.bsn)]).toEqual(['joint', ['01G20', '01G01']]);
   });
 
+  it('school without its own zone (SESB) standing in this one is not a candidate, but is reported', () => {
+    // зона 0423: Alt-Schmargendorf (04G23) и Judith-Kerr (04G27, SESB) на одном кампусе, зоны 0427 нет
+    const own = school('04G23', 13.401);
+    const sesb = school('04G27', 13.4005);
+    const r = assignSchool('0423', [sesb, own], [own, sesb], home, {}, new Set(['04G27']));
+    expect([r.status, r.schools.map((s) => s.bsn), r.withoutZone?.map((s) => s.bsn)]).toEqual(['exact', ['04G23'], ['04G27']]);
+    // своя зона у школы есть (её нет в noZone) — обычный кандидат
+    const mixed = assignSchool('0420', [school('04G20', 13.401), school('04G21', 13.402)], all, home, {}, new Set());
+    expect([mixed.status, mixed.schools.map((s) => s.bsn), mixed.withoutZone]).toEqual(['matched_by_code', ['04G20', '04G21'], []]);
+    // одна в чужой зоне — зона без школы, и в «3 ближайших» её тоже нет
+    const alone = assignSchool('0499', [sesb], [sesb, ...all], home, {}, new Set(['04G27']));
+    expect([alone.status, alone.schools.map((s) => s.bsn), alone.withoutZone?.map((s) => s.bsn)]).toEqual(['no_school_in_zone', ['01G01', '01G10', '01G20'], ['04G27']]);
+  });
+
   it('override with a school gone from the registry is ignored', () => {
     expect(assignSchool('0110', [a], all, home, { '0110': ['01G01', '01G99'] }).status).toBe('exact');
   });

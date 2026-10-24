@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compactGeometry, groupByZone, plzsOf, streetsOf, type Feature, type PlzAddress, type ZoneShare } from '../../src/geo.js';
+import { compactGeometry, excludedByOrtsteil, groupByZone, plzsOf, streetsOf, type Feature, type PlzAddress, type ZoneShare } from '../../src/geo.js';
 import { plzTitle, share, zoneMap } from '../../src/report.js';
 import { PlzInput, PlzQuery } from '../../src/schema.js';
 import { config } from '../../src/config.js';
@@ -33,6 +33,21 @@ describe('groupByZone', () => {
   it('address outside every zone is left out; zones without addresses are dropped', () => {
     const groups = groupByZone([addr('A', 1, 0.5), addr('A', 2, 5)], [a, b]);
     expect(groups.map((g) => [g.zone.properties.esb, g.addrs.length])).toEqual([['0101', 1]]);
+  });
+});
+
+describe('excludedByOrtsteil', () => {
+  it('PLZ houses in other Ortsteile: count, Ortsteile and zones; none → null', () => {
+    const other = (lon: number, ortsteil: string) => ({ ...addr('B', 1, lon), ortsteil });
+    expect(excludedByOrtsteil([other(1.5, 'Schmargendorf'), other(1.6, 'Schmargendorf'), other(0.5, 'Friedenau'), other(5, 'Friedenau')], [zone('0101', 0), zone('0102', 1)], (z) => (z.properties.esb === '0102' ? 'B-Grundschule' : null))).toEqual({
+      addresses: 4, // и дом вне всех зон
+      ortsteile: ['Friedenau', 'Schmargendorf'],
+      zones: [
+        { esb: '0102', school: 'B-Grundschule', addresses: 2 },
+        { esb: '0101', school: null, addresses: 1 },
+      ],
+    });
+    expect(excludedByOrtsteil([], [], () => null)).toBeNull();
   });
 });
 

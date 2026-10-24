@@ -1,4 +1,5 @@
 import { parse, type HTMLElement } from 'node-html-parser';
+import type { SchoolData } from './portrait.js';
 
 /** Подстраницы Schulporträt. Новая метрика = новая запись. `trend` — тянуть прошлые годы. */
 export const PAGES = [
@@ -96,6 +97,24 @@ export function keyFigure(p: PageData | undefined, row: string | null, col: numb
   if (!p || p.status !== 'ok') return null;
   const r = row === null ? p.rows.at(-1) : p.rows.find((x) => x[0] === row);
   return r?.at(col) || null;
+}
+
+/** У Gemeinschaftsschule пропуски считаются по 7–10 классам — с 5–6 классами Grundschule напрямую не сравнить: «K7-10», иначе null. */
+export function fehlGrades(k: (typeof KEY_FIGURES)[number], p: PageData): string | null {
+  const grades = k.page === 'fehl' ? p.caption.match(/K\d+-\d+/)?.[0] : undefined;
+  return grades && grades !== 'K5-6' ? grades : null;
+}
+
+/** Ключевые цифры текущего года каждой подстраницы — в сводку lookup, чтобы итог в чат брал их отсюда, а не из таблиц. null — нет на сайте. */
+export function currentFigures(pages: SchoolData['pages']) {
+  return Object.fromEntries(
+    KEY_FIGURES.map((k) => {
+      const yp = pages[k.page]?.[0];
+      const value = yp ? keyFigure(yp.data, k.row, k.col) : null;
+      const grades = yp && value !== null ? fehlGrades(k, yp.data) : null;
+      return [k.key, { title: k.title, year: yp?.year ?? null, value: grades ? `${value} (${grades})` : value }];
+    }),
+  );
 }
 
 export type Profile = { name: string; fields: [label: string, value: string][] };

@@ -107,6 +107,28 @@ describe('checks', () => {
     expect(schoolKeys({ bsn: '09G34', name: '34. Schule' })).toEqual(['09g34', '34. schule']);
     // одно слово слишком общее — полное имя
     expect(schoolKeys({ bsn: '07G01', name: 'Schöneberger Grundschule' })).toEqual(['07g01', 'schöneberger grundschule']);
+    // одно слово через дефис — ещё и сокращение из ответов округа
+    expect(schoolKeys({ bsn: '07G16', name: 'Ruppin-Grundschule' })).toEqual(['07g16', 'ruppin-grundschule', 'ruppin-gs']);
+  });
+
+  it('mentionsSchool: «-GS» abbreviation in a list of schools (BVV answer, Tempelhof-Schöneberg)', () => {
+    const text = normalize('Antwort auf die 2. Frage: Die Schulen (Paul-Klee-GS, Käthe-Kollwitz-GS, Ruppin-GS) erhalten zusätzliche Räume.');
+    const at = { start: text.indexOf('(paul'), end: text.indexOf('räume') + 5 };
+    expect(mentionsSchool(text, at, schoolKeys({ bsn: '07G16', name: 'Ruppin-Grundschule' }))).toBe(true);
+    expect(mentionsSchool(text, at, schoolKeys({ bsn: '07G13', name: 'Paul-Klee-Grundschule' }))).toBe(true);
+    // школы нет в списке, а перед списком названа ещё одна — не засчитывается
+    const other = normalize('Die Stechlinsee-Grundschule wurde erweitert. ') + text;
+    const shift = other.length - text.length;
+    expect(mentionsSchool(other, { start: at.start + shift, end: at.end + shift }, schoolKeys({ bsn: '07G17', name: 'Stechlinsee-Grundschule' }))).toBe(false);
+    // «gs» внутри слова и улица — не школа
+    const plain = (t: string) => mentionsSchool(normalize(t), { start: 0, end: t.length }, schoolKeys({ bsn: '07G16', name: 'Ruppin-Grundschule' }));
+    expect(plain('Im Anfangsgespräch zum Haushaltsgesetz wurde die Ruppiner Straße genannt.')).toBe(false);
+    expect(plain('Die Ruppin-GSV-Halle wird saniert.')).toBe(false);
+    // чужие сокращения — тоже школы: перед цитатой названа «Fläming-ISS», а не эта школа
+    const iss = normalize('Die Fläming-ISS bekommt Container. Die Arbeiten dauern bis 2027.');
+    const q = iss.indexOf('die arbeiten');
+    expect(mentionsSchool(iss, { start: q, end: iss.length }, schoolKeys({ bsn: '07G16', name: 'Ruppin-Grundschule' }))).toBe(false);
+    expect(mentionsSchool(normalize('Die Kiez-GemS bekommt Container.'), { start: 0, end: 34 }, schoolKeys({ bsn: '01K01', name: 'Kiez-Gemeinschaftsschule' }))).toBe(true);
   });
 
   it('mentionsSchool: whole word, not a school of another type', () => {
@@ -176,6 +198,10 @@ describe('checks', () => {
     expect(sourceKind(PRESS_URL)).toBe('official');
     expect(sourceKind('https://www.berlin.de/sen/bildung/schule/')).toBe('official');
     expect(sourceKind('https://www.berlin.de/aktuelles/berlin/1234-dpa-schule.php')).toBeNull();
+    // Schulbauoffensive: только новости по годам; подборка чужих пресс-релизов — нет
+    expect(sourceKind('https://www.berlin.de/schulbau/aktuelles/2026/pankow-frisch-sanierte-grundschule-am-weissen-see-feierlich-eroeffnet-1712318.php')).toBe('official');
+    expect(sourceKind('https://www.berlin.de/schulbau/aktuelles/bso-pressemitteilungen/')).toBeNull();
+    expect(sourceKind('https://www.berlin.de/schulbau/massnahmen/schulbaukarte/')).toBeNull();
     expect(sourceKind('https://pardok.parlament-berlin.de/starweb/adis/citat/VT/19/SchrAnfr/S19-26268.pdf')).toBe('official');
     expect(sourceKind('https://berlin.de.example.org/ba-x/')).toBeNull();
   });
@@ -330,6 +356,26 @@ describe('verifyDraft', () => {
     pages[blog] = { ...pages[blog], body: Buffer.from('<p>Bezirksamt: Die Fertigstellung des Erweiterungsbaus ist für Mitte 2027 geplant. 29.06.2026 Melli-Beese</p>') };
     const html = await verifyDraft(draft('09G06', [item({ url: blog })]), MELLI, profile, async (u) => pages[u], NOW);
     expect(html.rejected.map((r) => r.reason)).toEqual(['на сайте-зеркале не документ ведомства']);
+  });
+
+  it('a news list is not a document: its first date belongs to the newest entry, not to the quoted one', async () => {
+    const list = 'https://www.berlin.de/ba-treptow-koepenick/aktuelles/pressemitteilungen/2026/';
+    const schulbauYear = 'https://www.berlin.de/schulbau/aktuelles/2026/';
+    const index = 'https://www.berlin.de/ba-treptow-koepenick/aktuelles/index.php';
+    const toList = 'https://www.berlin.de/ba-treptow-koepenick/alt.php';
+    const pages: Record<string, Fetched> = { ...PAGES, [toList]: { ...PAGES[PRESS_URL], url: list } };
+    const ctx = await verifyDraft(
+      draft('09G06', [item({ url: list }), item({ url: schulbauYear }), item({ url: index }), item({ url: toList }), item({})]),
+      MELLI,
+      profile,
+      async (u) => pages[u],
+      NOW,
+    );
+    expect(ctx.items.map((i) => i.url)).toEqual([PRESS_URL]);
+    expect(ctx.rejected.map((r) => r.reason)).toEqual([
+      ...Array(3).fill('страница-список, а не документ: нужна ссылка на саму заметку'),
+      'переадресация на страницу-список, а не документ',
+    ]);
   });
 
   it('compact: one topic — newest first, at most 2 per category, duplicates dropped', async () => {
@@ -540,6 +586,14 @@ describe('report', () => {
     expect(html).toContain('<td>закреплённая (общая зона)</td>');
   });
 
+  it('a school without its own zone is named as not assigned, with the reason from config; old result.json without the field renders', () => {
+    const kerr: School = { ...school, bsn: '04G27', name: 'Judith-Kerr-Grundschule' };
+    const html = renderReport({ ...result, catchment: { ...result.catchment!, withoutZone: [kerr] } });
+    expect(html).toContain('ℹ️ В зоне стоит и Judith-Kerr-Grundschule (04G27), но своей зоны Einschulbereich у неё нет — в закреплённые не входит.');
+    expect(html).toContain('Staatliche Europa-Schule Berlin');
+    expect(renderReport(result)).not.toContain('своей зоны Einschulbereich');
+  });
+
   it('the nearest school is not called assigned when the zone gives no school', () => {
     const titled = (catchment: Catchment) => renderReport({ ...result, catchment }).match(/<h2>([^<]*) · 07G32<\/h2>/)?.[1];
     expect(titled(result.catchment!)).toBe('Закреплённая школа');
@@ -625,6 +679,21 @@ describe('PLZ', () => {
     expect(html).toContain('<small>вероятно закреплённая</small><br>Melli-Beese-Schule');
     expect(html).toContain('<small>кандидат</small><br>Schule am Ginkobaum');
     expect(renderPlzReport(result)).not.toContain('вероятно закреплённая');
+  });
+
+  it('PLZ + Ortsteil: houses of the PLZ in other Ortsteile are named, not dropped silently', () => {
+    const excludedByOrtsteil = { addresses: 100, ortsteile: ['Schmargendorf'], zones: [{ esb: '0716', school: 'Ruppin-Grundschule', addresses: 40 }, { esb: '0423', school: null, addresses: 20 }] };
+    const html = renderPlzReport({ ...result, input: { plz: '12487', ortsteil: 'Johannisthal', street: null }, excludedByOrtsteil });
+    expect(html).toContain('ℹ️ Ещё 100 адресов PLZ 12487 — в других районах (Schmargendorf), в отчёт не вошли: зоны 0716 Ruppin-Grundschule (40), 0423 (20).');
+    // с улицей — дома этой улицы, а не всего PLZ
+    expect(renderPlzReport({ ...result, input: { plz: '12487', ortsteil: 'Johannisthal', street: 'Sterndamm' }, excludedByOrtsteil })).toContain('ℹ️ Ещё 100 адресов Sterndamm в PLZ 12487');
+    expect(renderPlzReport(result)).not.toContain('в других районах');
+  });
+
+  it('zone row names a school without its own zone', () => {
+    const kerr: School = { ...school, bsn: '04G27', name: 'Judith-Kerr-Grundschule' };
+    const html = renderPlzReport({ ...result, zones: [{ ...result.zones[0], withoutZone: [kerr] }, result.zones[1]] });
+    expect(html).toContain('ℹ️ ещё в зоне Judith-Kerr-Grundschule 04G27 — своей зоны нет, не закреплена');
   });
 
   it('at most 3 facts per school; facts inside the block of their school; no context.json — report unchanged', async () => {

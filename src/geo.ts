@@ -193,6 +193,7 @@ export type Catchment = {
   esbText: string | null;
   status: CatchmentStatus;
   schools: School[]; // первая — основная для полного блока
+  withoutZone?: School[]; // стоят в зоне, но своей зоны у них нет (config.schoolsWithoutZone) — не кандидаты; в старых result.json поля нет
 };
 
 // ray casting: точка во внешнем кольце полигона и ни в одной его дыре (анклав другой зоны)
@@ -211,11 +212,28 @@ function inRing([x, y]: [number, number], ring: number[][]): boolean {
   return inside;
 }
 
+// часть районов нумерует зону по школе: зона 1105 ↔ школа 11G05
+const zoneCode = (bsn: string) => bsn.slice(0, 2) + bsn.slice(3);
+
 /**
  * Зона → школа: поправка > одна школа в зоне > совпадение кода зоны с bsn > все кандидаты; пустая зона → 3 ближайшие.
  * Поправка списком — общая зона нескольких школ (gemeinsamer ESB в справочнике округа): закреплены все, ближайшая первой.
+ * Школа без своей зоны (noZone), стоящая в этой, — не кандидат: в отчёте отдельной строкой (withoutZone).
  */
 export function assignSchool(
+  esb: string,
+  inside: School[],
+  all: School[],
+  from: { lon: number; lat: number },
+  overrides: Record<string, string | string[]>,
+  noZone: Set<string> = new Set(),
+): Pick<Catchment, 'status' | 'schools' | 'withoutZone'> {
+  // и в «3 ближайших» пустой зоны её нет: иначе основной блок займёт школа, которая «в закреплённые не входит»
+  const ok = (s: School) => !noZone.has(s.bsn);
+  return { ...bySpace(esb, inside.filter(ok), all.filter(ok), from, overrides), withoutZone: inside.filter((s) => !ok(s)) };
+}
+
+function bySpace(
   esb: string,
   inside: School[],
   all: School[],
@@ -230,8 +248,7 @@ export function assignSchool(
   const sorted = nearest(inside, from, inside.length);
   if (sorted.length === 1) return { status: 'exact', schools: sorted };
   if (sorted.length > 1) {
-    // часть районов нумерует зону по школе: зона 1105 ↔ школа 11G05
-    const byCode = sorted.filter((s) => s.bsn.slice(0, 2) + s.bsn.slice(3) === esb);
+    const byCode = sorted.filter((s) => zoneCode(s.bsn) === esb);
     // остальные школы зоны остаются в отчёте кандидатами
     return byCode.length === 1
       ? { status: 'matched_by_code', schools: [byCode[0], ...sorted.filter((s) => s !== byCode[0])] }
@@ -260,6 +277,36 @@ export async function checkOverrides(api: APIRequestContext, overrides = config.
   return problems;
 }
 
+// на api-контекст: в plz по нескольку зон за прогон — один запрос; новый контекст (следующий адрес lookup) — свежий ответ слоя
+const noZoneCache = new WeakMap<APIRequestContext, Promise<Set<string>>>();
+
+/** Школы из listed, у которых в слое и правда нет зоны со своим кодом: получила зону — снова обычный кандидат. */
+export function noZoneSchools(api: APIRequestContext, listed = Object.keys(config.schoolsWithoutZone)): Promise<Set<string>> {
+  if (!listed.length) return Promise.resolve(new Set());
+  if (!noZoneCache.has(api))
+    noZoneCache.set(
+      api,
+      getFeatures(api, 'esb', config.esbLayer, `esb IN (${listed.map((b) => cqlString(zoneCode(b))).join(',')})`, 'EPSG:4326').then((zones) => {
+        const found = new Set(zones.map((f) => f.properties.esb));
+        return new Set(listed.filter((b) => !found.has(zoneCode(b))));
+      }),
+    );
+  return noZoneCache.get(api)!;
+}
+
+/** Для canary: каждая школа schoolsWithoutZone есть в реестре и по-прежнему без своей зоны. Пустой список — всё на месте. */
+export async function checkWithoutZone(api: APIRequestContext, listed = Object.keys(config.schoolsWithoutZone)): Promise<string[]> {
+  const known = new Set((await primarySchools(api)).map((s) => s.bsn));
+  const noZone = await noZoneSchools(api, listed);
+  return listed.flatMap((bsn) =>
+    !known.has(bsn)
+      ? [`schoolsWithoutZone: школы ${bsn} нет в реестре schulen — запись убрать`]
+      : !noZone.has(bsn)
+        ? [`schoolsWithoutZone: у ${bsn} в слое ${config.esbLayer} есть своя зона ${zoneCode(bsn)} — школа снова кандидат, запись сверить и убрать`]
+        : [],
+  );
+}
+
 export async function catchment(api: APIRequestContext, addr: Candidate): Promise<Catchment> {
   const [zone] = await getFeatures(
     api,
@@ -269,12 +316,13 @@ export async function catchment(api: APIRequestContext, addr: Candidate): Promis
     'EPSG:4326',
   );
   const all = await primarySchools(api);
-  if (!zone) return { esb: null, esbText: null, status: 'no_zone', schools: nearest(all, addr, 3) };
+  const noZone = await noZoneSchools(api);
+  if (!zone) return { esb: null, esbText: null, status: 'no_zone', schools: nearest(all.filter((s) => !noZone.has(s.bsn)), addr, 3) };
   const inside = all.filter((s) => inGeometry([s.lon, s.lat], zone.geometry));
   return {
     esb: zone.properties.esb,
     esbText: zone.properties.esb_text ?? null,
-    ...assignSchool(zone.properties.esb, inside, all, addr, config.esbOverrides),
+    ...assignSchool(zone.properties.esb, inside, all, addr, config.esbOverrides, noZone),
   };
 }
 
@@ -343,11 +391,34 @@ const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
 /** «Schöneberg», «Schoeneberg», «schöneberg» → один и тот же район: ILIKE-шаблон, точное совпадение — после свёртки. */
 const ortsteilPattern = (o: string) => fold(o).replace(/[%_]/g, '').replace(/ss|ae|oe|ue/g, '%');
 
+/**
+ * Дома PLZ в других районах при запросе «PLZ + район»: в отчёт не входят, но и не пропадают молча.
+ * school — школа зоны, только если она определена однозначно (exact / override), иначе null.
+ */
+export type ExcludedByOrtsteil = { addresses: number; ortsteile: string[]; zones: { esb: string; school: string | null; addresses: number }[] };
+
+export function excludedByOrtsteil(
+  rest: (PlzAddress & { ortsteil: string })[],
+  zones: Feature[],
+  schoolOf: (zone: Feature, addrs: PlzAddress[]) => string | null,
+): ExcludedByOrtsteil | null {
+  if (!rest.length) return null;
+  return {
+    addresses: rest.length,
+    ortsteile: [...new Set(rest.map((a) => a.ortsteil))].sort(),
+    zones: groupByZone(rest, zones).map(({ zone, addrs }) => ({ esb: zone.properties.esb, school: schoolOf(zone, addrs), addresses: addrs.length })),
+  };
+}
+
 /** Все адреса PLZ и/или района (или одной улицы в них) → зоны Einschulbereich, в которые они попадают, и школа каждой зоны. */
-export async function plzZones(api: APIRequestContext, q: PlzQuery): Promise<{ total: number; zones: ZoneShare[] }> {
+export async function plzZones(
+  api: APIRequestContext,
+  q: PlzQuery,
+): Promise<{ total: number; zones: ZoneShare[]; excludedByOrtsteil: ExcludedByOrtsteil | null }> {
   const conds: string[] = [];
   if (q.plz) conds.push(`plz=${cqlString(q.plz)}`);
-  if (q.ortsteil) conds.push(`ort_name ILIKE ${cqlString(ortsteilPattern(q.ortsteil))}`);
+  // с PLZ район отбираем в памяти: дома PLZ в других районах нужны для строки «ещё N адресов»
+  else if (q.ortsteil) conds.push(`ort_name ILIKE ${cqlString(ortsteilPattern(q.ortsteil))}`);
   if (q.street) conds.push(`str_name ILIKE ${cqlString(streetPattern(q.street))}`);
   let addrs: (PlzAddress & { ortsteil: string })[] = (
     await getFeatures(api, 'adressen_berlin', 'adressen_berlin', conds.join(' AND '), 'EPSG:4326')
@@ -360,34 +431,43 @@ export async function plzZones(api: APIRequestContext, q: PlzQuery): Promise<{ t
     lon: f.geometry.coordinates[0],
     lat: f.geometry.coordinates[1],
   }));
-  // шаблон с «%» вместо ss/ae/oe/ue шире имени — оставляем только точное совпадение после свёртки
-  if (q.ortsteil) addrs = addrs.filter((a) => fold(a.ortsteil) === fold(q.ortsteil!));
   if (q.street) {
     // ILIKE по префиксу ловит и «Am Waldidyll» для «Am Wald»: чужую улицу не выдаём за запрошенную — лучше not_found
     const street = normStreet(q.street);
     addrs = addrs.filter((a) => normStreet(a.street) === street);
   }
-  if (!addrs.length) return { total: 0, zones: [] };
+  const rest = q.ortsteil && q.plz ? addrs.filter((a) => fold(a.ortsteil) !== fold(q.ortsteil!)) : [];
+  // шаблон с «%» вместо ss/ae/oe/ue шире имени — оставляем только точное совпадение после свёртки
+  if (q.ortsteil) addrs = addrs.filter((a) => fold(a.ortsteil) === fold(q.ortsteil!));
+  if (!addrs.length && !rest.length) return { total: 0, zones: [], excludedByOrtsteil: null };
 
   // BBOX по адресам отдаёт и соседние зоны — лишние отсеет groupByZone
-  const lons = addrs.map((a) => a.lon);
-  const lats = addrs.map((a) => a.lat);
+  const lons = [...addrs, ...rest].map((a) => a.lon);
+  const lats = [...addrs, ...rest].map((a) => a.lat);
   const bbox = [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)].join(',');
   const zones = await getFeatures(api, 'esb', config.esbLayer, `BBOX(geom,${bbox},'EPSG:4326')`, 'EPSG:4326');
   const all = await primarySchools(api);
+  const noZone = await noZoneSchools(api);
+  // «ближайшие» для зоны без школы — к центру её адресов в этом PLZ
+  const assign = (zone: Feature, addrs: PlzAddress[]) =>
+    assignSchool(
+      zone.properties.esb,
+      all.filter((s) => inGeometry([s.lon, s.lat], zone.geometry)),
+      all,
+      { lon: mean(addrs.map((a) => a.lon)), lat: mean(addrs.map((a) => a.lat)) },
+      config.esbOverrides,
+      noZone,
+    );
   return {
     total: addrs.length,
+    excludedByOrtsteil: excludedByOrtsteil(rest, zones, (zone, addrs) => {
+      const a = assign(zone, addrs);
+      return a.status === 'exact' || a.status === 'override' ? a.schools[0].name : null;
+    }),
     zones: groupByZone(addrs, zones).map(({ zone, addrs }) => ({
       esb: zone.properties.esb,
       esbText: zone.properties.esb_text ?? null,
-      // «ближайшие» для зоны без школы — к центру её адресов в этом PLZ
-      ...assignSchool(
-        zone.properties.esb,
-        all.filter((s) => inGeometry([s.lon, s.lat], zone.geometry)),
-        all,
-        { lon: mean(addrs.map((a) => a.lon)), lat: mean(addrs.map((a) => a.lat)) },
-        config.esbOverrides,
-      ),
+      ...assign(zone, addrs),
       addresses: addrs.length,
       plzs: plzsOf(addrs),
       streets: streetsOf(addrs),

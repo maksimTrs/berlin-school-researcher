@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
+import { config } from './config.js';
 import { CATEGORIES, type Category, type Context, type PlzContext } from './context.js';
-import { KEY_FIGURES, keyFigure, PAGES, type PageKey } from './extract.js';
-import { formatAddress, type Candidate, type Catchment, type School, type ZoneShare } from './geo.js';
+import { fehlGrades, KEY_FIGURES, keyFigure, PAGES, type PageKey } from './extract.js';
+import { formatAddress, type Candidate, type Catchment, type ExcludedByOrtsteil, type School, type ZoneShare } from './geo.js';
 import type { SchoolData, YearPage } from './portrait.js';
 import type { AddressQuery, PlzQuery } from './schema.js';
 import { EMOJI, scoreSchool, verdict } from './score.js';
@@ -53,6 +54,12 @@ const STATUS_TEXT: Record<Catchment['status'], { text: string; warn: boolean }> 
   no_zone: { text: 'Адрес не попал ни в одну зону — показаны ближайшие школы', warn: true },
 };
 
+/** Школа стоит в зоне, но своей зоны у неё нет (config.schoolsWithoutZone): семье важно знать, что она рядом, но не закреплена. */
+const withoutZoneNote = (schools: School[] = []) =>
+  schools
+    .map((s) => `<p class="meta">ℹ️ В зоне стоит и ${esc(s.name)} (${esc(s.bsn)}), но своей зоны Einschulbereich у неё нет — в закреплённые не входит. ${esc(config.schoolsWithoutZone[s.bsn] ?? '')}</p>`)
+    .join('');
+
 // заголовок основного блока: ближайшая школа без закрепления не называется закреплённой
 const MAIN_TITLE: Record<Catchment['status'], string> = {
   exact: 'Закреплённая школа',
@@ -101,9 +108,8 @@ function figure(data: SchoolData, k: (typeof KEY_FIGURES)[number], year?: string
   if (!yp) return year ? `<span class="nd">${esc(noData(year))}</span>` : '—';
   const v = keyFigure(yp.data, k.row, k.col);
   if (v === null) return `<span class="nd">${esc(noData(yp.year))}</span>`;
-  // у Gemeinschaftsschule пропуски считаются по 7–10 классам — с 5–6 классами Grundschule напрямую не сравнить
-  const grades = k.page === 'fehl' ? yp.data.caption.match(/K\d+-\d+/)?.[0] : undefined;
-  return grades && grades !== 'K5-6' ? `${esc(v)} <small>(${esc(grades)})</small>` : esc(v);
+  const grades = fehlGrades(k, yp.data);
+  return grades ? `${esc(v)} <small>(${esc(grades)})</small>` : esc(v);
 }
 
 function schoolLinks(s: School, data: SchoolData, home: Point, withInspections: boolean): string {
@@ -314,6 +320,7 @@ ${contextBlock(facts.get(o.school.bsn) ?? null, o.data.profile.name || o.school.
 </header>
 
 ${st.warn ? `<p class="warn">⚠️ ${esc(st.text)}${c.status === 'joint' ? `: ${c.schools.map((s) => `${esc(s.name)} (${esc(s.bsn)})`).join(', ')}` : ''}.</p>` : `<p class="meta">${esc(st.text)}.</p>`}
+${withoutZoneNote(c.withoutZone)}
 ${
   r.alternatives.length
     ? `<p class="warn">⚠️ Адрес неоднозначен, взят первый вариант. Другие: ${r.alternatives.map((a) => esc(formatAddress(a))).join('; ')}.</p>`
@@ -446,6 +453,7 @@ export type PlzResult = {
   zones: ZoneShare[]; // от большей доли адресов к меньшей
   schools: PlzSchool[]; // школы всех зон без повторов
   warnings: string[]; // школы, чей Schulporträt не загрузился
+  excludedByOrtsteil?: ExcludedByOrtsteil | null; // PLZ + район: дома PLZ в других районах; в старых result.json поля нет
 };
 
 // 1 дом из 775 — не «0 %», а 429 из 430 — не «100 %»: рядом есть другая зона, пусть и маленькая
@@ -523,6 +531,16 @@ export function zoneMap(zones: ZoneShare[]): string {
   </figure>`;
 }
 
+/** «ℹ️ Ещё 100 адресов PLZ 14197 — в других районах (Schmargendorf), в отчёт не вошли: зоны 0716 Ruppin-Grundschule (40), …». */
+const excludedNote = (r: Pick<PlzResult, 'input' | 'excludedByOrtsteil'>) => {
+  const x = r.excludedByOrtsteil;
+  if (!x) return '';
+  const zones = x.zones.map((z) => `${esc(z.esb)}${z.school ? ` ${esc(z.school)}` : ''} (${z.addresses})`).join(', ');
+  // с улицей — дома этой улицы, а не всего PLZ
+  const what = r.input.street ? `${esc(r.input.street)} в PLZ ${esc(r.input.plz)}` : `PLZ ${esc(r.input.plz)}`;
+  return `<p class="meta">ℹ️ Ещё ${x.addresses} адресов ${what} — в других районах (${esc(x.ortsteile.join(', '))}), в отчёт не вошли${zones ? `: зоны ${zones}` : ''}.</p>`;
+};
+
 /** ctx — проверенный context.json по школам PLZ, если его собирали. */
 export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null): string {
   const facts = new Map(ctx?.schools.map((c) => [c.bsn, c]));
@@ -548,7 +566,7 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null): st
         return z.schools
           .map(
             (s, i) => `<tr>
-              ${i === 0 ? `<th scope="row" rowspan="${z.schools.length}">${esc(z.esb)}<br><small>${z.addresses} · ${esc(share(z.addresses, r.addresses))}</small>${manyPlz ? `<br><small>${z.plzs.map((p) => `${esc(p.plz)}: ${p.addresses}`).join(' · ')}</small>` : ''}${st.warn ? `<br><small class="bad">⚠️ ${esc(st.text)}</small>` : ''}</th>` : ''}
+              ${i === 0 ? `<th scope="row" rowspan="${z.schools.length}">${esc(z.esb)}<br><small>${z.addresses} · ${esc(share(z.addresses, r.addresses))}</small>${manyPlz ? `<br><small>${z.plzs.map((p) => `${esc(p.plz)}: ${p.addresses}`).join(' · ')}</small>` : ''}${st.warn ? `<br><small class="bad">⚠️ ${esc(st.text)}</small>` : ''}${(z.withoutZone ?? []).map((w) => `<br><small>ℹ️ ещё в зоне ${esc(schoolName(w))} ${esc(w.bsn)} — своей зоны нет, не закреплена</small>`).join('')}</th>` : ''}
               <td>${z.status === 'matched_by_code' ? `<small>${i === 0 ? 'вероятно закреплённая' : 'кандидат'}</small><br>` : z.status === 'joint' ? '<small>общая зона</small><br>' : ''}${esc(schoolName(s))} <small>${esc(s.bsn)}${inStartchancen(s) ? ' · 🔶 Startchancen' : ''}</small><br>${marker(s)}</td>
             </tr>`,
           )
@@ -626,6 +644,7 @@ ${
     : `<p class="meta">Все адреса — в одной зоне.</p>`
 }
 ${outside ? `<p class="warn">⚠️ Адресов вне всех зон: ${outside}.</p>` : ''}
+${excludedNote(r)}
 
 <section>
   <h2>Зоны и школы</h2>

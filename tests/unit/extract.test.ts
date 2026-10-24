@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   availableYears,
   captionYear,
+  currentFigures,
   extractInspections,
   extractPage,
   extractProfile,
@@ -29,6 +30,20 @@ describe('extractPage', () => {
     const other = forYear(p, '2023/24');
     expect(other.status).toBe('no_data');
     expect(keyFigure(other, 'Ausfall von Unterricht', 1)).toBeNull();
+  });
+
+  it('currentFigures: current year of each page as on the site; page not loaded → null', () => {
+    const vunt = extractPage(fixture('01G01_management_vunt'));
+    const uvers = extractPage(fixture('01G01_schulpersonal_uvers'));
+    const f = currentFigures({ vunt: [{ year: '2025/26', data: vunt }], uvers: [{ year: '2025/26', data: uvers }] });
+    expect(f.ausfall).toEqual({ title: 'Ausfall уроков', year: '2025/26', value: '1,2%' });
+    expect(f.bilanz).toEqual({ title: 'Баланс учит. часов', year: '2025/26', value: '53,1' });
+    expect(f.lehrkraefte).toEqual({ title: 'Учителей', year: null, value: null });
+    // у Gemeinschaftsschule пропуски — по 7–10 классам: пометка, как в отчёте; у Grundschule (K5-6) — без неё
+    const fehl = extractPage(fixture('01G01_schuelerschaft_fehl'));
+    const gems = { ...fehl, caption: 'Fehlzeiten 2025/26 (1.Shj K7-10)' };
+    expect(currentFigures({ fehl: [{ year: '2025/26', data: gems }] }).fehl.value).toMatch(/ \(K7-10\)$/);
+    expect(currentFigures({ fehl: [{ year: '2025/26', data: { ...fehl, caption: 'K5-6' } }] }).fehl.value).not.toContain('(');
   });
 
   it('uvers: teacher balance', () => {

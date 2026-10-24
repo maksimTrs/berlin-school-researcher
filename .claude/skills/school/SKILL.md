@@ -18,7 +18,8 @@ argument-hint: <адрес>[; <адрес> ...]
 Ввод часто скопирован из объявлений (ImmoScout24, Kleinanzeigen, Immowelt, WG-Gesucht):
 - `Esmarchstraße 13, 10407 Prenzlauer Berg (Prenzlauer Berg)` — после PLZ Ortsteil, в скобках старый округ;
 - `Seesener Straße 17, 10711 Berlin, Halensee (Wilmersdorf)`, `Katharinenstr. 3, 10711 Berlin - Halensee`;
-- `Adresse: Knaackstraße 12, Prenzlauer Berg (Prenzlauer Berg)` — без PLZ.
+- `Adresse: Knaackstraße 12, Prenzlauer Berg (Prenzlauer Berg)` — без PLZ;
+- `Varziner Straße 13, Friedenau, 12161 Berlin` — Ortsteil перед PLZ.
 
 Правила деления:
 - Строка вида `10711 Berlin, Halensee` без улицы — продолжение адреса на предыдущей строке: склей их в одну строку через `, `.
@@ -84,8 +85,9 @@ argument-hint: <адрес>[; <адрес> ...]
 
 **Поиск** — WebSearch `standard`, 3–4 запроса: имя школы без «(Grundschule)» и BSN вместе с
 `Erweiterung`, `Container`, `Raummangel`, `Willkommensklasse`, `Schulleitung`, `Einschulungsbereich`, `Sanierung`, `Hort`.
-Где искать: пресс-релизы Bezirksamt (`berlin.de/ba-<bezirk>/aktuelles/pressemitteilungen`), страницы Schul- und Sportamt,
-ответы на запросы в Abgeordnetenhaus (`pardok.parlament-berlin.de`) и в BVV округа, рассылки Bezirksamt по районам (`…/newsletter-<район>/`). СМИ и блоги — только как подсказка,
+Где искать: пресс-релизы Bezirksamt (`berlin.de/ba-<bezirk>/aktuelles/pressemitteilungen`), страницы Schul- und Sportamt, новости Schulbauoffensive (`berlin.de/schulbau/aktuelles/<год>/`),
+ответы на запросы в Abgeordnetenhaus (`pardok.parlament-berlin.de`) и в BVV округа, рассылки Bezirksamt по районам (`…/newsletter-<район>/`).
+Минимум по каждой школе — все три вида: пресс-релизы Bezirksamt, pardok (имя школы и BSN, текущий и прошлый год), ответы BVV округа; не нашлось — это «не найдено», а не «сообщений нет». СМИ и блоги — только как подсказка,
 где искать первоисточник; в черновик идёт сам документ ведомства. berlin.de отвечает `429` на частые запросы — `curl --retry 6 --retry-delay 4`.
 Если фактов больше лимита, код оставляет важные темы: `capacity` → `catchment` → `construction` → `welcome_classes` → `afterschool` → `leadership` (факт с `contradicts` — всегда первым).
 
@@ -107,7 +109,8 @@ argument-hint: <адрес>[; <адрес> ...]
 Два факта об одном и том же — одна запись. Пояснение «что это значит» к каждой теме добавляет отчёт сам — в `summaryRu` его не пиши.
 
 **Период:** документ опубликован за последние `context.pastMonths` месяцев (`config/config.json`, сейчас 12),
-или в нём объявлен план, который наступит в ближайшие `context.futureMonths` (сейчас 6).
+или в нём объявлен план, который наступит в ближайшие `context.futureMonths` (сейчас 6), — тогда сам документ не старше `context.plannedMaxAgeMonths` (сейчас 24).
+`planned` годом (`"2026"`) — это весь год, в том числе уже начавшийся: документ 2025-03 с планом на 2026 в октябре 2026 подходит.
 
 **Черновик** `out/<slug>/context.draft.json` (папка — из пути `report` в сводке):
 
@@ -125,14 +128,16 @@ argument-hint: <адрес>[; <адрес> ...]
 
 - `quote` — дословно из документа, на немецком, 30–600 знаков; пропуск внутри — `…`. Ответ ведомства, а не вопрос депутата.
 - `summaryRu` — одна строка, не длиннее 160 знаков, пересказывает **только цитату**. Числа — цифрами и только те, что есть в цитате.
-- `published` — дата документа (`YYYY-MM-DD` или `YYYY-MM`): первая дата в его шапке, так, как она там написана. `planned` — год или месяц объявленного события, если оно есть в цитате.
+- `published` — дата документа (`YYYY-MM-DD` или `YYYY-MM`): первая дата в его шапке, так, как она там написана. У Schriftliche Anfrage (pardok) это дата вопроса после «vom» в первой строке («Schriftliche Anfrage … vom 21. März 2025»), а не дата «Antwort vom …». `planned` — год или месяц объявленного события, если оно есть в цитате.
+- `url` — сам документ (`….1687371.php`, `….pdf`), а не страница-список новостей (адрес кончается на `/` или `index.php`): у списка первая дата — у самой свежей заметки, код такую ссылку отклонит.
+- `queries` — дословно те запросы, что ты выполнил, а не их пересказ: по ним сверяют, где искали.
 - `contradicts` — название поля профиля из `result.json` (`schools[0].data.profile.fields`), если сообщение его опровергает. Иначе `null`.
 - Не больше 10 записей, лимиты на отчёт код ставит сам.
 
 **Проверка:** `npm run context -- --dir out/<slug>`. Код скачивает каждый источник и оставляет запись, только если сайт в списке
-`config.context` (`officialSources` — домен и начало пути: на berlin.de только `/ba-…` и `/sen/…`; с `mirrorHosts` — только PDF-ответ ведомства: ведомство в бланке, а не фракция, в шапке «Antwort auf …» или «Beantwortung»),
+`config.context` (`officialSources` — домен и начало пути: на berlin.de только `/ba-…`, `/sen/…` и новости `/schulbau/aktuelles/<год>/`; с `mirrorHosts` — только PDF-ответ ведомства: ведомство в бланке, а не фракция, в шапке «Antwort auf …» или «Beantwortung»),
 цитата дословно есть в документе (части через «…» — не дальше 200 знаков друг от друга), цитата про эту школу (если в цитате названы школы — среди них эта; если нет — ближайшая школа, названная перед цитатой, — эта;
-имя без «Grundschule» считается, только рядом со словом «Schule»: «Kurt-Tucholsky-Straße» — не школа),
+имя без «Grundschule» считается, только рядом со словом «Schule» или сокращением «-GS»/«-GemS»: «Ruppin-GS» — школа, «Kurt-Tucholsky-Straße» — нет),
 цитата не из вопроса депутата (вопрос — от «N.» до «Antwort auf N. Frage» или «Zu N.:»), первая дата в шапке документа (первые 1500 знаков) — это `published`, а период подходит.
 Пишет `context.json` и заново `report.html`. В stdout — `items` (что попало в отчёт) и `rejected` с причинами.
 - Причина «цитаты нет в источнике дословно» — сверь цитату с документом и поправь один раз. Остальные причины не обходи.
@@ -147,12 +152,13 @@ argument-hint: <адрес>[; <адрес> ...]
 
 На каждый адрес — несколько строк из сводки lookup:
 - `school` и `bsn`; `catchmentStatus`: `exact` / `override` — без пометок; `joint` — «⚠️ общая зона нескольких школ: закреплены все» и по каждой школе из `joint` строка «школа, `bsn`, `verdict`, 🔶/ℹ️ Startchancen» и её 📌 факты из stdout `context` (`schools[]`); `verdict: null` — «⚠️ нет данных: Schulporträt не загрузился» (причина — в `warnings`), черновик фактов по ней не пиши; остальное — ⚠️, `candidates` и «уточнить в Schulamt района»;
+- `withoutZone`, если есть, — строка «ℹ️ В зоне стоит и <школа>: своей зоны у неё нет, в закреплённые не входит» (причина — в отчёте);
 - `verdict` — как есть, без пересказа и своих оценок;
 - `startchancen: true` — строка «🔶 В программе Startchancen: больше учеников из социально неблагополучных семей, дополнительные деньги и персонал (что это значит — в отчёте)»; `false` — «ℹ️ Не в программе Startchancen»;
 - ⚠️ `alternatives` адреса, если есть;
 - ⚠️ `warnings` — как есть, если есть (школы без данных в отчёте или неприменённая поправка зоны);
 - 📌 `items` из stdout `context` — по строке «дата · `summaryRu`» без своих добавлений; пустой — «📌 Официальных сообщений о школе за период не найдено»;
-- 💭 если есть `items` — 2–4 строки «Как это складывается с цифрами»: связь фактов с маркером и ключевыми цифрами из `result.json`,
+- 💭 если есть `items` — 2–4 строки «Как это складывается с цифрами»: связь фактов с маркером и ключевыми цифрами из `keyFigures` сводки (`value` как на сайте, с `year`; `value: null` — «н/д — нет данных на сайте за `year`», а если и `year: null` — подстраница не загрузилась: «н/д — нет данных на сайте»),
   с пометкой, что это вывод Claude, а не данные. Только связи между тем, что уже есть в `result.json` и `context.json`, без новых фактов и чисел; маркер не пересматривай;
 - ссылка на artifact.
 

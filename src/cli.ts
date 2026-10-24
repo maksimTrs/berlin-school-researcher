@@ -3,8 +3,8 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
 import { AddressContextSchema, Draft, fetchFollowing, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
-import { KEY_FIGURES, keyFigure } from './extract.js';
-import { catchment, checkOverrides, formatAddress, geocode, neighbors, onStreet, overrideIgnored, plzZones, resolveStatus, type School } from './geo.js';
+import { currentFigures, KEY_FIGURES, keyFigure } from './extract.js';
+import { catchment, checkOverrides, checkWithoutZone, formatAddress, geocode, neighbors, onStreet, overrideIgnored, plzZones, resolveStatus, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
 import { firstLine, preflight } from './preflight.js';
 import {
@@ -204,6 +204,8 @@ function summarize({ result: r, dir }: { result: AddressResult; dir: string | nu
     school: main ? `${main.data.profile.name || main.school.name}` : null,
     bsn: main?.school.bsn ?? null,
     candidates: r.schools.filter((s) => s.role === 'candidate').map((s) => `${s.school.name} (${s.school.bsn})`),
+    // стоят в зоне, но своей зоны нет — не закреплены (config.schoolsWithoutZone)
+    withoutZone: (r.catchment?.withoutZone ?? []).map((s) => `${s.name} (${s.bsn})`),
     // общая зона: остальные закреплённые школы — с маркером, как основная; без Schulporträt — verdict null (см. warnings)
     joint: (r.catchment?.status === 'joint' ? r.catchment.schools.slice(1) : []).map((school) => {
       const d = r.schools.find((s) => s.role === 'joint' && s.school.bsn === school.bsn)?.data;
@@ -216,6 +218,8 @@ function summarize({ result: r, dir }: { result: AddressResult; dir: string | nu
     }),
     warnings: r.warnings,
     verdict: main ? verdict(scoreSchool(main.data)).text : null,
+    // цифры для 💭 в итоге: значения как на сайте, null — нет данных
+    keyFigures: main ? currentFigures(main.data.pages) : null,
     startchancen: main ? startchancen().schools.includes(main.school.bsn) : null,
     report: dir && join(dir, 'report.html'),
     result: dir && join(dir, 'result.json'),
@@ -267,8 +271,9 @@ async function lookupCmd() {
 async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | null }> {
   const api = await newApi();
   try {
-    const { total, zones } = await plzZones(api, q);
-    const base = { input: q, generatedAt: new Date().toISOString(), esbLayer: config.esbLayer };
+    const { total, zones, excludedByOrtsteil } = await plzZones(api, q);
+    // район назван неверно для PLZ — not_found всё равно скажет, в каких районах дома этого PLZ
+    const base = { input: q, generatedAt: new Date().toISOString(), esbLayer: config.esbLayer, excludedByOrtsteil };
     if (!total) {
       return { result: { ...base, status: 'not_found', addresses: 0, zones: [], schools: [], warnings: [] }, dir: null };
     }
@@ -329,8 +334,10 @@ function summarizePlz({ result: r, dir }: { result: PlzResult; dir: string | nul
           startchancen: startchancen().schools.includes(s.bsn),
         };
       }),
+      withoutZone: (z.withoutZone ?? []).map((s) => `${s.name} (${s.bsn})`),
     })),
     outside: r.addresses - r.zones.reduce((n, z) => n + z.addresses, 0),
+    excludedByOrtsteil: r.excludedByOrtsteil ?? null,
     warnings: r.warnings,
     report: dir && join(dir, 'report.html'),
     result: dir && join(dir, 'result.json'),
@@ -405,6 +412,8 @@ async function canaryCmd() {
     });
     // поправки зон ещё указывают на существующие зону слоя и школы
     await check('esbOverrides', () => checkOverrides(api));
+    // школы без своей зоны ещё в реестре и всё ещё без зоны — иначе устаревшая запись вычёркивала бы кандидата
+    await check('schoolsWithoutZone', () => checkWithoutZone(api));
     // правила переезда посреди года: цитаты снимка ещё дословно в документах SenBJF
     await check('Переезд (config/zuzug.json)', async () =>
       (await verifyZuzug(zuzug(), fetchFollowing(api))).map((p) => `Переезд (config/zuzug.json): ${p} — найди новую формулировку и обнови снимок`),

@@ -44,18 +44,19 @@ export const Input = z.object({
 export function parseAddress(raw: string): AddressQuery {
   // номер дома — первое число, после которого идёт только [буква][-диапазон], затем PLZ и Ortsteil без цифр:
   // так «Straße des 17. Juni 100» даёт дом 100, а «Joachim-Friedrich-Straße 35-36, 10711» — дом 35
-  const m = raw
-    .trim()
-    .replace(/^Adresse:\s*/i, '') // так начинается адрес в карточке объявления
-    .match(/^(.+?)\s+(?:Nr\.?\s*)?(\d{1,4})\s*([a-zA-Z])?(?:\s*[-–/]\s*\d+[a-zA-Z]?)?(?:\s*,\s*|\s+|$)(\d{5})?[\s,]*([^\d]*)$/);
-  if (!m) throw new Error(`Не разобран адрес: «${raw}». Ожидается «Straße Nr[, PLZ] [Ortsteil]»`);
+  const s = raw.trim().replace(/^Adresse:\s*/i, ''); // так начинается адрес в карточке объявления
+  const m =
+    s.match(/^(.+?)\s+(?:Nr\.?\s*)?(\d{1,4})\s*([a-zA-Z])?(?:\s*[-–/]\s*\d+[a-zA-Z]?)?(?:\s*,\s*|\s+|$)(?<plz>\d{5})?[\s,]*(?<ortsteil>[^\d]*)$/) ??
+    // «Varziner Straße 13, Friedenau, 12161 Berlin» — район перед PLZ
+    s.match(/^(.+?)\s+(?:Nr\.?\s*)?(\d{1,4})\s*([a-zA-Z])?(?:\s*[-–/]\s*\d+[a-zA-Z]?)?\s*,\s*(?<ortsteil>[^\d,]+?)\s*,\s*(?<plz>\d{5})(?:[\s,]+Berlin)?\s*$/);
+  if (!m) throw new Error(`Не разобран адрес: «${raw}». Ожидается «Straße Nr[, PLZ] [Ortsteil]» или «Straße Nr, Ortsteil, PLZ»`);
   return AddressQuery.parse({
     raw,
     street: m[1].replace(/,$/, ''),
     house: Number(m[2]),
     suffix: m[3] ?? null,
-    plz: m[4] ?? null,
+    plz: m.groups!.plz ?? null,
     // «10711 Berlin, Halensee (Wilmersdorf)» / «10711 Berlin - Halensee» → «Halensee (Wilmersdorf)» / «Halensee»
-    ortsteil: m[5].replace(/^Berlin\b[\s,–-]*/i, '').trim() || null,
+    ortsteil: m.groups!.ortsteil.replace(/^Berlin\b[\s,–-]*/i, '').trim() || null,
   });
 }

@@ -160,17 +160,20 @@ export function schoolKeys(s: Pick<School, 'bsn' | 'name'>): string[] {
     .trim();
   // одно слово («schöneberger», «am schloss» без места) слишком общее — тогда только полное имя
   const distinct = core.replace(/^(am|an der|im|in der) /, '');
-  return [s.bsn.toLowerCase(), distinct.length >= 6 && /[\s-]/.test(core) ? core : full];
+  if (distinct.length >= 6 && /[\s-]/.test(core)) return [s.bsn.toLowerCase(), core];
+  // и сокращение, как в ответах округа: «(Paul-Klee-GS, Käthe-Kollwitz-GS, Ruppin-GS)»
+  const short = full.match(/^[\p{L}\d.]+-(grund|gemeinschafts)schule$/u);
+  return [s.bsn.toLowerCase(), full, ...(short ? [`${core}-${short[1] === 'grund' ? 'gs' : 'gems'}`] : [])];
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// имена школ в тексте: «melli-beese-schule», «nahariya-grundschule», «schule am ginkobaum», номер «07g32»
-const ANY_SCHOOL = /(?<![\p{L}\d])(?:[\p{L}\d.]+-)+(?:grund|gemeinschafts|ober|sekundar|gesamt)?schule(?![\p{L}\d])|(?<![\p{L}\d])(?:grund)?schule (?:am|an der|an den|im|in der) [\p{L}-]+|(?<![\p{L}\d])\d{2}[a-z]\d{2}(?![\p{L}\d])/gu;
+// имена школ в тексте: «melli-beese-schule», «nahariya-grundschule», «paul-klee-gs», «schule am ginkobaum», номер «07g32»
+const ANY_SCHOOL = /(?<![\p{L}\d])(?:[\p{L}\d.]+-)+(?:(?:grund|gemeinschafts|ober|sekundar|gesamt)?schule|gs|gems|iss)(?![\p{L}\d])|(?<![\p{L}\d])(?:grund)?schule (?:am|an der|an den|im|in der) [\p{L}-]+|(?<![\p{L}\d])\d{2}[a-z]\d{2}(?![\p{L}\d])/gu;
 
 type Mention = { start: number; end: number; ours: boolean };
 
-const SCHOOL_WORD = '(?:grund|gemeinschafts)?schule';
+const SCHOOL_WORD = '(?:(?:grund|gemeinschafts)?schule|gs|gems)'; // «-GS», «-GemS» — сокращения в ответах округа
 
 /**
  * Номер и полное имя — отдельным словом, не школа другого типа. Имя без «Grundschule» — только рядом со словом
@@ -305,6 +308,12 @@ const onSource = (url: URL, list: string[]) =>
     return (url.hostname === host || url.hostname.endsWith(`.${host}`)) && url.pathname.startsWith(prefix);
   });
 
+/**
+ * Страница-список («…/pressemitteilungen/2026/», «…/aktuelles/index.php»), а не документ: первая дата в её шапке —
+ * у самой свежей заметки, и цитата из старой прошла бы как свежая. У документа адрес — файл («….1687371.php», «….pdf»).
+ */
+export const isListing = (url: string) => /\/(index\.php)?$/.test(new URL(url).pathname);
+
 export function sourceKind(url: string): 'official' | 'mirror' | null {
   const u = new URL(url);
   return onSource(u, config.context.officialSources) ? 'official' : onSource(u, config.context.mirrorHosts) ? 'mirror' : null;
@@ -396,6 +405,10 @@ export async function verifyDraft(
       reject(`${new URL(item.url).hostname}${new URL(item.url).pathname}: не в списке официальных источников (config.context)`);
       continue;
     }
+    if (isListing(item.url)) {
+      reject('страница-список, а не документ: нужна ссылка на саму заметку');
+      continue;
+    }
     const late = outOfWindow(item, now);
     if (late) {
       reject(late);
@@ -419,6 +432,10 @@ export async function verifyDraft(
     }
     if (sourceKind(page.final) !== kind) {
       reject(`переадресация на ${new URL(page.final).hostname}`);
+      continue;
+    }
+    if (isListing(page.final)) {
+      reject('переадресация на страницу-список, а не документ');
       continue;
     }
     // на зеркале — только PDF ведомства: в HTML слово «Bezirksverordnetenversammlung» бывает и в меню

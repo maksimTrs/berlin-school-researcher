@@ -28,6 +28,13 @@ describe('parseAddress', () => {
     ['Danziger Str. 50/52 10435 Berlin', { street: 'Danziger Str.', house: 50, plz: '10435' }],
     ['Kastanienallee Nr. 12', { street: 'Kastanienallee', house: 12 }],
     ['  Behmstraße   65 ,  13357  ', { street: 'Behmstraße', house: 65, plz: '13357' }],
+    // район перед PLZ
+    ['Varziner Straße 13, Friedenau, 12161 Berlin', { street: 'Varziner Straße', house: 13, suffix: null, plz: '12161', ortsteil: 'Friedenau' }],
+    ['Katharinenstr. 3a, Halensee, 10711', { street: 'Katharinenstr.', house: 3, suffix: 'a', plz: '10711', ortsteil: 'Halensee' }],
+    ['Straße des 17. Juni 100, Tiergarten, 10557', { street: 'Straße des 17. Juni', house: 100, plz: '10557', ortsteil: 'Tiergarten' }],
+    ['Varziner Straße 13, Berlin-Friedenau, 12161', { plz: '12161', ortsteil: 'Friedenau' }],
+    ['Varziner Straße 13, Berlin, 12161', { plz: '12161', ortsteil: null }],
+    ['Varziner Straße 13, Friedenau, 12161, Berlin', { plz: '12161', ortsteil: 'Friedenau' }],
   ])('listing: %s', (raw, expected) => {
     expect(parseAddress(raw)).toMatchObject(expected);
   });

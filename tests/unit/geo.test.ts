@@ -1,7 +1,7 @@
 import type { APIRequestContext } from 'playwright';
 import { describe, expect, it } from 'vitest';
-import { config } from '../../src/config.js';
-import { geocode, groupByZone, onStreet, plzZones, resolveStatus, type Feature } from '../../src/geo.js';
+import { config, currentEsbLayer } from '../../src/config.js';
+import { checkWithoutZone, geocode, groupByZone, noZoneSchools, onStreet, plzZones, resolveStatus, type Feature } from '../../src/geo.js';
 
 // WFS отвечает по слою из typeNames; CQL-фильтр не применяется — ответ задан таким, каким его вернул бы ILIKE по префиксу
 const fakeApi = (layers: Record<string, Feature[]>) =>
@@ -33,6 +33,15 @@ const layers = (addresses: Feature[]) => ({
   'schulen:schulen': [school('01G01', 13.401), school('01G10', 13.402)],
 });
 
+describe('currentEsbLayer', () => {
+  it('zones of the current school year; the new one starts on 1 August, Berlin time', () => {
+    expect(currentEsbLayer(new Date('2026-07-31T21:59:00Z'))).toBe('esb_2025'); // 31.07 23:59 в Берлине
+    expect(currentEsbLayer(new Date('2026-07-31T22:00:00Z'))).toBe('esb_2026'); // 01.08 00:00 в Берлине
+    expect(currentEsbLayer(new Date('2026-10-24T12:00:00Z'))).toBe('esb_2026');
+    expect(currentEsbLayer(new Date('2027-03-15T12:00:00Z'))).toBe('esb_2026'); // переезд посреди 2026/27
+  });
+});
+
 describe('geocode + resolveStatus: prefix sibling street', () => {
   it('only «Am Waldidyll 3» exists for «Am Wald 3» → ambiguous, not exact', async () => {
     const q = { street: 'Am Wald', house: 3, plz: '12357' };
@@ -50,7 +59,7 @@ describe('geocode + resolveStatus: prefix sibling street', () => {
 describe('plzZones', () => {
   it('--street with only a prefix sibling in the PLZ → nothing found', async () => {
     const api = fakeApi(layers([address('Am Waldidyll', 1, 13.4), address('Am Waldidyll', 2, 13.4)]));
-    expect(await plzZones(api, { plz: '12357', street: 'Am Wald' })).toEqual({ total: 0, zones: [] });
+    expect(await plzZones(api, { plz: '12357', street: 'Am Wald' })).toEqual({ total: 0, zones: [], excludedByOrtsteil: null });
   });
 
   it('--street keeps only the exact street', async () => {
@@ -82,6 +91,36 @@ describe('plzZones: Ortsteil', () => {
     expect(r.zones[0].plzs).toEqual([
       { plz: '10827', addresses: 2 },
       { plz: '10823', addresses: 1 },
+    ]);
+    expect(r.excludedByOrtsteil).toBeNull(); // без PLZ — не с чем сравнивать
+  });
+
+  it('PLZ + Ortsteil: houses of the PLZ in other Ortsteile are counted, not dropped silently', async () => {
+    const api = fakeApi(
+      layers([
+        address('Rüdesheimer Platz', 1, 13.4, 'Wilmersdorf', '14197'),
+        address('Rüdesheimer Platz', 2, 13.4, 'Wilmersdorf', '14197'),
+        address('Binger Straße', 30, 13.4, 'Schmargendorf', '14197'),
+      ]),
+    );
+    const r = await plzZones(api, { plz: '14197', ortsteil: 'Wilmersdorf' });
+    expect([r.total, r.excludedByOrtsteil]).toEqual([2, { addresses: 1, ortsteile: ['Schmargendorf'], zones: [{ esb: '0110', school: null, addresses: 1 }] }]); // в зоне две школы — однозначной нет
+    // район назван неверно для PLZ — домов нет, но видно, в каких районах они есть
+    const wrong = await plzZones(api, { plz: '14197', ortsteil: 'Friedenau' });
+    expect([wrong.total, wrong.excludedByOrtsteil?.ortsteile]).toEqual([0, ['Schmargendorf', 'Wilmersdorf']]);
+  });
+});
+
+describe('schoolsWithoutZone: checked against the layer on every run and by canary', () => {
+  // в слое есть только зона 0110: у 01G10 своя зона появилась, у 01G01 её нет (0101), 01G99 нет в реестре
+  it('a listed school that got its own zone is a regular candidate again', async () => {
+    expect([...(await noZoneSchools(fakeApi(layers([])), ['01G10', '01G01']))]).toEqual(['01G01']);
+  });
+
+  it('canary: listed school gone from the registry or with its own zone → stale entry', async () => {
+    expect(await checkWithoutZone(fakeApi(layers([])), ['01G10', '01G01', '01G99'])).toEqual([
+      `schoolsWithoutZone: у 01G10 в слое ${config.esbLayer} есть своя зона 0110 — школа снова кандидат, запись сверить и убрать`,
+      'schoolsWithoutZone: школы 01G99 нет в реестре schulen — запись убрать',
     ]);
   });
 });
