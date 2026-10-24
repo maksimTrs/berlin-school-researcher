@@ -168,16 +168,24 @@ export type School = {
 
 let primarySchoolsCache: School[] | undefined;
 
+/**
+ * Кандидаты зон: публичные Grundschule/Gemeinschaftsschule и школы из esbOverrides любого типа — своя зона с
+ * обычными классами бывает и у школы с Förderschwerpunkt (Comenius-Schule 04S07, решение BA Charlottenburg-Wilmersdorf 17.06.2025).
+ */
+export const schoolsCql = (overrides: Record<string, string | string[]> = config.esbOverrides) => {
+  const listed = [...new Set(Object.values(overrides).flat())];
+  // два запроса, а не «… OR bsn IN (…)»: такой фильтр WAF gdi.berlin.de отклоняет («Request Rejected»)
+  return [
+    "traeger='oeffentlich' AND schulart IN ('Grundschule','Gemeinschaftsschule')",
+    ...(listed.length ? [`traeger='oeffentlich' AND bsn IN (${listed.map(cqlString).join(',')})`] : []),
+  ];
+};
+
 export async function primarySchools(api: APIRequestContext): Promise<School[]> {
-  primarySchoolsCache ??= (
-    await getFeatures(
-      api,
-      'schulen',
-      'schulen',
-      "traeger='oeffentlich' AND schulart IN ('Grundschule','Gemeinschaftsschule')",
-      'EPSG:4326',
-    )
-  ).map((f) => {
+  if (primarySchoolsCache) return primarySchoolsCache;
+  const features = (await Promise.all(schoolsCql().map((cql) => getFeatures(api, 'schulen', 'schulen', cql, 'EPSG:4326')))).flat();
+  // школа поправки может оказаться и Grundschule — в обоих ответах; оставляем одну
+  primarySchoolsCache = [...new Map(features.map((f) => [f.properties.bsn, f])).values()].map((f) => {
     const p = f.properties;
     return {
       bsn: p.bsn,

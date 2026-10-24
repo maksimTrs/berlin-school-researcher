@@ -147,6 +147,7 @@ flowchart TD
 | Зона | Школы | Источник |
 |---|---|---|
 | `0799` | `07G40`, `07G06` | [Adressverzeichnis der ESB der Grundschulen in Tempelhof-Schöneberg ab SJ 2026/2027](https://www.berlin.de/ba-tempelhof-schoeneberg/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/adressverzeichnis-der-esb-der-grundschulen-in-ts-ab-sj-2026-2027.pdf): «Gemeinsamer ESB der 40. Schule (Grundschule) und der Sternberg-Grundschule» |
+| `0457` | `04S07` | [Bezirksamt Charlottenburg-Wilmersdorf, Beschluss 17.06.2025, VzB 210, Anlage 1 «Zuschneidung der Einschulungsbereiche»](https://www.berlin.de/ba-charlottenburg-wilmersdorf/politik/bezirksamt/beschluesse/6-wahlperiode/2025/164_ba_n_bproto_250617_vzb-210_anlage-1.pdf): «Die Schaffung eines Einschulungsbereichs an der Comenius-Schule reduziert das Defizit der Katharina-Heinroth-Grundschule, indem der Einschulungsbereich südlich des Hohenzollerndamms geteilt und fortan der Comenius-Schule zugerechnet wird». Comenius-Schule — единственная школа внутри зоны, код 04S07 ↔ 0457. Тип школы — Förderschwerpunkt, поэтому без поправки её нет среди кандидатов (только Grundschule/Gemeinschaftsschule); школа из поправки берётся из реестра любого типа |
 
 Школы без своей зоны `schoolsWithoutZone` — стоят в чужой зоне, кандидатом её не считаются. Запись — только если школа в списке SESB **и** в слое нет зоны с её кодом: у части SESB-школ (04G04, 04G15, 04G20) есть обычный набор по зоне. Код проверяет это при каждом прогоне (получила зону — снова кандидат), `canary` — что запись не устарела:
 

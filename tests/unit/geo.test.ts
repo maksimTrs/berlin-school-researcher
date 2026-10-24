@@ -1,7 +1,7 @@
 import type { APIRequestContext } from 'playwright';
 import { describe, expect, it } from 'vitest';
 import { config, currentEsbLayer } from '../../src/config.js';
-import { checkWithoutZone, geocode, groupByZone, noZoneSchools, onStreet, plzZones, resolveStatus, type Feature } from '../../src/geo.js';
+import { checkWithoutZone, geocode, groupByZone, noZoneSchools, onStreet, plzZones, resolveStatus, schoolsCql, type Feature } from '../../src/geo.js';
 
 // WFS отвечает по слою из typeNames; CQL-фильтр не применяется — ответ задан таким, каким его вернул бы ILIKE по префиксу
 const fakeApi = (layers: Record<string, Feature[]>) =>
@@ -39,6 +39,18 @@ describe('currentEsbLayer', () => {
     expect(currentEsbLayer(new Date('2026-07-31T22:00:00Z'))).toBe('esb_2026'); // 01.08 00:00 в Берлине
     expect(currentEsbLayer(new Date('2026-10-24T12:00:00Z'))).toBe('esb_2026');
     expect(currentEsbLayer(new Date('2027-03-15T12:00:00Z'))).toBe('esb_2026'); // переезд посреди 2026/27
+  });
+});
+
+describe('schoolsCql', () => {
+  it('Grundschule/Gemeinschaftsschule plus every school named in esbOverrides, whatever its type', () => {
+    const types = "traeger='oeffentlich' AND schulart IN ('Grundschule','Gemeinschaftsschule')";
+    expect(schoolsCql({})).toEqual([types]);
+    // отдельным запросом: «… OR bsn IN (…)» отклоняет WAF gdi.berlin.de
+    expect(schoolsCql({ '0799': ['07G40', '07G06'], '0457': '04S07', '0798': '07G06' })).toEqual([
+      types,
+      "traeger='oeffentlich' AND bsn IN ('07G40','07G06','04S07')",
+    ]);
   });
 });
 
