@@ -21,6 +21,11 @@ export const PlzQuery = z
   .refine((q) => q.plz || q.ortsteil, 'Нужен PLZ или район (Ortsteil)');
 export type PlzQuery = z.infer<typeof PlzQuery>;
 
+// несколько запросов /school-plz за раз — как адреса у lookup: не больше maxAddresses
+export const PlzInput = z.object({
+  queries: z.array(PlzQuery).min(1).max(config.maxAddresses),
+});
+
 // адрес строкой, как в объявлении, — раскладывает parseAddress (покрыт тестами), а не модель
 const RawAddress = z.object({ raw: z.string().min(3) }).strict().transform((a, ctx) => {
   try {

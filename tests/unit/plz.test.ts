@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { compactGeometry, groupByZone, plzsOf, streetsOf, type Feature, type PlzAddress, type ZoneShare } from '../../src/geo.js';
 import { plzTitle, share, zoneMap } from '../../src/report.js';
-import { PlzQuery } from '../../src/schema.js';
+import { PlzInput, PlzQuery } from '../../src/schema.js';
+import { config } from '../../src/config.js';
 
 // квадрат [x0..x0+1] × [0..1]
 const zone = (esb: string, x0: number): Feature => ({
@@ -137,5 +138,14 @@ describe('share', () => {
     [430, 430, '100 %'],
   ])('%i of %i → %s', (n, total, text) => {
     expect(share(n, total)).toBe(text);
+  });
+});
+
+describe('PlzInput', () => {
+  it(`takes 1..maxAddresses queries, each needs PLZ or Ortsteil`, () => {
+    expect(PlzInput.parse({ queries: [{ ortsteil: 'Friedenau' }, { plz: '12357', ortsteil: 'Rudow' }] }).queries).toHaveLength(2);
+    expect(() => PlzInput.parse({ queries: [] })).toThrow();
+    expect(() => PlzInput.parse({ queries: Array(config.maxAddresses + 1).fill({ plz: '10439' }) })).toThrow();
+    expect(() => PlzInput.parse({ queries: [{ ortsteil: 'Friedenau' }, { street: 'Handjerystraße' }] })).toThrow('Нужен PLZ или район');
   });
 });

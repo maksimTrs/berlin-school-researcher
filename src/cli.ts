@@ -17,7 +17,7 @@ import {
   type PlzSchool,
   type SchoolEntry,
 } from './report.js';
-import { Input, parseAddress, PlzQuery, type AddressQuery } from './schema.js';
+import { Input, parseAddress, PlzInput, PlzQuery, type AddressQuery } from './schema.js';
 import { scoreProblems, scoreSchool, verdict } from './score.js';
 import { diffSchools, fetchStartchancen, saveSnapshot, startchancen } from './startchancen.js';
 import { verifyZuzug, zuzug } from './zuzug.js';
@@ -337,15 +337,31 @@ function summarizePlz({ result: r, dir }: { result: PlzResult; dir: string | nul
   };
 }
 
+/** Один запрос (--plz/--ortsteil/--street) → объект; файл (--input) → массив сводок, по одной на запрос, как у lookup. */
 async function plzCmd() {
-  const q = PlzQuery.parse({ plz: args.plz ?? null, ortsteil: args.ortsteil ?? null, street: args.street ?? null });
+  const batch = !!args.input;
+  const queries = batch
+    ? PlzInput.parse(JSON.parse(readFileSync(args.input!, 'utf8'))).queries
+    : [PlzQuery.parse({ plz: args.plz ?? null, ortsteil: args.ortsteil ?? null, street: args.street ?? null })];
   if (!(await sitesAvailable())) return;
-  try {
-    console.log(JSON.stringify(summarizePlz(await plzOne(q)), null, 2));
-  } catch (e) {
-    console.log(JSON.stringify({ input: plzTitle(q), status: 'error', error: firstLine(e) }, null, 2));
-    process.exitCode = 1;
+  const out = [];
+  const seen = new Set<string>();
+  // сбой одного запроса не теряет остальные; повтор того же запроса — та же папка, второй раз не собираем
+  for (const q of queries) {
+    const key = plzTitle(q).toLowerCase();
+    if (seen.has(key)) {
+      out.push({ input: plzTitle(q), status: 'skipped', error: 'повтор запроса выше' });
+      continue;
+    }
+    seen.add(key);
+    try {
+      out.push(summarizePlz(await plzOne(q)));
+    } catch (e) {
+      out.push({ input: plzTitle(q), status: 'error', error: firstLine(e) });
+    }
   }
+  console.log(JSON.stringify(batch ? out : out[0], null, 2));
+  if (out.some((s) => s.status === 'error')) process.exitCode = 1;
 }
 
 /**
@@ -431,7 +447,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = commands[positionals[0]];
 if (!cmd) {
   console.error(
-    'Использование: tsx src/cli.ts resolve|lookup|plz|context|canary|preflight|startchancen [--input f.json | --address "..." | --plz 10439 | --ortsteil Friedenau [--street "..."] | --dir out/<адрес>] [--headed --slowmo N --trace]',
+    'Использование: tsx src/cli.ts resolve|lookup|plz|context|canary|preflight|startchancen [--input f.json | --address "..." | --plz 10439 | --ortsteil Friedenau [--street "..."] | plz --input plz-input.json | --dir out/<адрес>] [--headed --slowmo N --trace]',
   );
   process.exit(2);
 }
