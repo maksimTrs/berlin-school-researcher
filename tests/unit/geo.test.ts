@@ -3,13 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { config, currentEsbLayer } from '../../src/config.js';
 import { checkWithoutZone, geocode, groupByZone, noZoneSchools, onStreet, plzZones, resolveStatus, schoolsCql, type Feature } from '../../src/geo.js';
 
+// ответ WFS, как его отдаёт Playwright APIResponse
+const wfsResponse = (body: object) => ({ ok: () => true, headers: () => ({ 'content-type': 'application/json' }), text: async () => JSON.stringify(body) });
+
 // WFS отвечает по слою из typeNames; CQL-фильтр не применяется — ответ задан таким, каким его вернул бы ILIKE по префиксу
 const fakeApi = (layers: Record<string, Feature[]>) =>
   ({
-    get: async (url: string) => {
-      const features = layers[new URL(url).searchParams.get('typeNames')!] ?? [];
-      return { ok: () => true, json: async () => ({ features }) };
-    },
+    get: async (url: string) => wfsResponse({ features: layers[new URL(url).searchParams.get('typeNames')!] ?? [] }),
   }) as unknown as APIRequestContext;
 
 const point = (id: string, lon: number, properties: Record<string, any>): Feature => ({
@@ -146,7 +146,7 @@ describe('onStreet / WFS / zone holes', () => {
 
   it('a truncated WFS response is an error, not fewer addresses', async () => {
     const api = {
-      get: async () => ({ ok: () => true, json: async () => ({ numberMatched: 3, features: [address('Am Wald', 1, 13.4)] }) }),
+      get: async () => wfsResponse({ numberMatched: 3, features: [address('Am Wald', 1, 13.4)] }),
     } as unknown as APIRequestContext;
     await expect(plzZones(api, { plz: '12357' })).rejects.toThrow('отдано 1 из 3 объектов');
   });

@@ -25,11 +25,23 @@ async function getFeatures(
   });
   const res = await api.get(`${WFS}${service}?${params}`, { maxRetries: 2 });
   if (!res.ok()) throw new Error(`WFS ${service}: HTTP ${res.status()} ${await res.text()}`);
-  const { features, numberMatched } = await res.json();
+  const { features, numberMatched } = wfsJson(service, cql, res.headers()['content-type'] ?? '', await res.text());
   // сервер отдаёт не больше CountDefault (сейчас 1 000 000): урезанная выдача молча исказила бы доли зон PLZ
   if (typeof numberMatched === 'number' && features.length < numberMatched)
     throw new Error(`WFS ${service}: отдано ${features.length} из ${numberMatched} объектов`);
   return features;
+}
+
+/**
+ * Ответ WFS → JSON. Отказ приходит с HTTP 200: WAF — HTML «Request Rejected», GeoServer — XML ExceptionReport;
+ * без проверки это «Unexpected token '<' … is not valid JSON» вместо причины.
+ */
+export function wfsJson(service: string, cql: string, contentType: string, body: string): { features: Feature[]; numberMatched?: number } {
+  if (contentType.includes('json')) return JSON.parse(body);
+  const reason =
+    body.match(/<ows:ExceptionText>([\s\S]*?)<\/ows:ExceptionText>/)?.[1] ??
+    body.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ');
+  throw new Error(`WFS ${service} отклонил запрос (${contentType || 'без content-type'}): ${reason.replace(/\s+/g, ' ').trim().slice(0, 300)} — фильтр: ${cql}`);
 }
 
 const cqlString = (s: string) => `'${s.replace(/'/g, "''")}'`;

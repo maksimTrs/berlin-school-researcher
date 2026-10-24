@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assignSchool, overrideIgnored, type School } from '../../src/geo.js';
+import { assignSchool, overrideIgnored, wfsJson, type School } from '../../src/geo.js';
 
 const school = (bsn: string, lon: number): School => ({
   bsn,
@@ -102,5 +102,25 @@ describe('assignSchool', () => {
     expect(overrideIgnored({ esb: '0110', status: 'exact' }, o)).toContain('Поправка esbOverrides для зоны 0110 (01G01, 01G99) не применена');
     expect(overrideIgnored({ esb: '0110', status: 'joint' }, o)).toBeNull();
     expect(overrideIgnored({ esb: '0111', status: 'exact' }, o)).toBeNull();
+  });
+});
+
+describe('wfsJson', () => {
+  const cql = "traeger='oeffentlich' OR bsn IN ('04S07')";
+
+  it('JSON → features', () => {
+    expect(wfsJson('schulen', cql, 'application/json;charset=UTF-8', '{"features":[],"numberMatched":0}')).toEqual({ features: [], numberMatched: 0 });
+  });
+
+  it('WAF HTML page with HTTP 200 → the reason and the filter, not «Unexpected token <»', () => {
+    const html = '<html><head><title>Request Rejected</title><style>p{}</style></head><body>The requested URL was rejected.<br>Your support ID is: 123</body></html>';
+    expect(() => wfsJson('schulen', cql, 'text/html', html)).toThrow(
+      `WFS schulen отклонил запрос (text/html): Request Rejected The requested URL was rejected. Your support ID is: 123 — фильтр: ${cql}`,
+    );
+  });
+
+  it('GeoServer XML ExceptionReport → its ExceptionText', () => {
+    const xml = '<ows:ExceptionReport><ows:Exception exceptionCode="InvalidParameterValue"><ows:ExceptionText>Could not parse CQL filter list.</ows:ExceptionText></ows:Exception></ows:ExceptionReport>';
+    expect(() => wfsJson('esb', 'esb=', 'application/xml', xml)).toThrow('WFS esb отклонил запрос (application/xml): Could not parse CQL filter list. — фильтр: esb=');
   });
 });
