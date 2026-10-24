@@ -213,6 +213,28 @@ describe('checks', () => {
 });
 
 describe('verifyDraft', () => {
+  it('over the limit, a fact that contradicts the profile stays first, whatever its topic', async () => {
+    const capacity = item({
+      category: 'capacity',
+      quote: 'Weil in den kommenden Jahren … wird die Melli-Beese-Schule zu einer 3,5-zügigen Grundschule ausgebaut.',
+      summaryRu: 'Школу расширяют до 3,5 классов на параллель',
+    });
+    const field = profile.fields[0][0];
+    const ctx = await verifyDraft(draft('09G06', [capacity, item({ contradicts: field })]), MELLI, profile, fetchFixture, NOW, 1);
+    expect(ctx.items.map((i) => [i.category, i.contradicts])).toEqual([['construction', field]]);
+  });
+
+  it('over the limit, the more important topic stays (capacity before construction), whatever the draft order', async () => {
+    const capacity = item({
+      category: 'capacity',
+      quote: 'Weil in den kommenden Jahren … wird die Melli-Beese-Schule zu einer 3,5-zügigen Grundschule ausgebaut.',
+      summaryRu: 'Школу расширяют до 3,5 классов на параллель',
+    });
+    const ctx = await verifyDraft(draft('09G06', [item({}), capacity]), MELLI, profile, fetchFixture, NOW, 1);
+    expect(ctx.items.map((i) => i.category)).toEqual(['capacity']);
+    expect(ctx.rejected.map((r) => r.reason)).toEqual(['лимит: не больше 1 фактов']);
+  });
+
   it('keeps only quotes found in an official source, with the school named and the date in the document', async () => {
     const ctx = await verifyDraft(
       draft('09G06', [
@@ -233,9 +255,10 @@ describe('verifyDraft', () => {
       fetchFixture,
       NOW,
     );
+    // одна дата — по важности темы (PRIORITY): места раньше стройки
     expect(ctx.items.map((i) => [i.category, i.host, i.source])).toEqual([
-      ['construction', 'www.berlin.de', 'official'],
       ['capacity', 'www.berlin.de', 'official'],
+      ['construction', 'www.berlin.de', 'official'],
     ]);
     expect(ctx.rejected.map((r) => r.reason)).toEqual([
       'цитаты нет в источнике дословно',
@@ -309,7 +332,7 @@ describe('verifyDraft', () => {
     expect(html.rejected.map((r) => r.reason)).toEqual(['на сайте-зеркале не документ ведомства']);
   });
 
-  it('compact: newest first, at most 2 per category, duplicates dropped', async () => {
+  it('compact: one topic — newest first, at most 2 per category, duplicates dropped', async () => {
     const q = (quote: string) => item({ quote, summaryRu: 'Пристройка и ремонт школы' });
     const ctx = await verifyDraft(
       draft('09G06', [
@@ -428,6 +451,26 @@ describe('fetchFollowing / readContext', () => {
     expect(ctx.rejected.map((r) => r.reason)).toEqual(['переадресация на example.org']);
   });
 
+  it('429 (berlin.de rate limit): waits Retry-After and repeats, at most 3 times', async () => {
+    vi.useFakeTimers();
+    try {
+      const ok = resp(200, { 'content-type': 'text/html' }, '<main>ok</main>');
+      const get = vi.fn().mockResolvedValueOnce(resp(429, { 'retry-after': '2' })).mockResolvedValueOnce(ok);
+      const pending = fetchFollowing({ get } as unknown as Pick<APIRequestContext, 'get'>)(`${BA}/a.php`);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect((await pending).status).toBe(200);
+      expect(get).toHaveBeenCalledTimes(2);
+
+      const busy = vi.fn(async () => resp(429, { 'retry-after': '1' }));
+      const gaveUp = fetchFollowing({ get: busy } as unknown as Pick<APIRequestContext, 'get'>)(`${BA}/a.php`);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect((await gaveUp).status).toBe(429); // verifyDraft отклонит: «источник не загрузился: HTTP 429»
+      expect(busy).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('more than 5 redirects is an error', async () => {
     const { get, fetch } = api({ [`${BA}/a.php`]: resp(302, { location: `${BA}/a.php` }) });
     await expect(fetch(`${BA}/a.php`)).rejects.toThrow('больше 5 переадресаций');
@@ -471,6 +514,31 @@ describe('report', () => {
     schools: [{ school, role: 'main', data: { bsn: '07G32', portraitUrl: 'https://example.org', profile, pages: {}, inspections: [], screenshots: [] } }],
     warnings: [],
   };
+
+  it('joint zone: the other assigned school gets its own block with marker and its verified facts', async () => {
+    const other: School = { ...school, bsn: '07G40', name: '40. Schule (Grundschule)' };
+    const joint: AddressResult = {
+      ...result,
+      catchment: { ...result.catchment!, status: 'joint', schools: [school, other] },
+      schools: [
+        ...result.schools,
+        { school: other, role: 'joint', data: { ...result.schools[0].data, bsn: '07G40', profile: { name: '40. Schule (Grundschule) - 07G40', fields: [] } } },
+      ],
+    };
+    const ctx = {
+      schools: [
+        await verifyDraft(draft('07G32', []), BUERGEL, profile, fetchFixture, NOW),
+        await verifyDraft(draft('07G40', []), other, profile, fetchFixture, NOW),
+      ],
+    };
+    const html = renderReport(joint, ctx);
+    expect(html).toContain('<h2>Одна из закреплённых школ общей зоны · 07G32</h2>');
+    expect(html).toContain('<h2>Тоже закреплённая школа общей зоны · 07G40</h2>');
+    expect(html).toContain(': Bruno-H.-Bürgel-Grundschule (07G32), 40. Schule (Grundschule) (07G40).</p>'); // все школы зоны — и без данных
+    expect(html).toContain('<h2>Что известно из официальных источников — 40. Schule (Grundschule) - 07G40</h2>');
+    expect(html.match(/Сообщений о школе за этот период не найдено/g)).toHaveLength(2); // факты проверены по обеим
+    expect(html).toContain('<td>закреплённая (общая зона)</td>');
+  });
 
   it('the nearest school is not called assigned when the zone gives no school', () => {
     const titled = (catchment: Catchment) => renderReport({ ...result, catchment }).match(/<h2>([^<]*) · 07G32<\/h2>/)?.[1];
@@ -536,8 +604,8 @@ describe('PLZ', () => {
     status: 'ok',
     addresses: 10,
     zones: [
-      { esb: '0906', esbText: null, status: 'exact', schools: [school], addresses: 6, streets: [] },
-      { esb: '0907', esbText: null, status: 'exact', schools: [other], addresses: 4, streets: [] },
+      { esb: '0906', esbText: null, status: 'exact', schools: [school], addresses: 6, plzs: [], streets: [] },
+      { esb: '0907', esbText: null, status: 'exact', schools: [other], addresses: 4, plzs: [], streets: [] },
     ],
     schools: [
       { school, data: data('09G06') },

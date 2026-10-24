@@ -17,8 +17,8 @@ const point = (id: string, lon: number, properties: Record<string, any>): Featur
   geometry: { type: 'Point', coordinates: [lon, 52.5] },
   properties,
 });
-const address = (street: string, hnr: number, lon: number) =>
-  point(`${street} ${hnr}`, lon, { str_name: street, hnr, plz: '12357', ort_name: 'Rudow', bez_name: 'Neukölln' });
+const address = (street: string, hnr: number, lon: number, ort_name = 'Rudow', plz = '12357') =>
+  point(`${street} ${hnr}`, lon, { str_name: street, hnr, plz, ort_name, bez_name: 'Neukölln' });
 const school = (bsn: string, lon: number) =>
   point(bsn, lon, { bsn, schulname: bsn, schulart: 'Grundschule', strasse: 'X', hausnr: '1', plz: '12357' });
 // зона 0110 — квадрат вокруг всех точек
@@ -63,6 +63,26 @@ describe('plzZones', () => {
   it('matched_by_code zone: the matched school first, the other schools of the zone kept', async () => {
     const r = await plzZones(fakeApi(layers([address('Am Wald', 1, 13.4)])), { plz: '12357' });
     expect(r.zones.map((z) => [z.status, z.schools.map((s) => s.bsn)])).toEqual([['matched_by_code', ['01G10', '01G01']]]);
+  });
+});
+
+describe('plzZones: Ortsteil', () => {
+  it('keeps only the exact Ortsteil (spelling folded) and counts addresses per PLZ', async () => {
+    // ILIKE «sch%neberg» отдал бы и соседний район с похожим именем — его отсеивает точное сравнение
+    const api = fakeApi(
+      layers([
+        address('Hauptstraße', 1, 13.4, 'Schöneberg', '10827'),
+        address('Hauptstraße', 2, 13.4, 'Schöneberg', '10827'),
+        address('Akazienstraße', 1, 13.4, 'Schöneberg', '10823'),
+        address('Rheinstraße', 1, 13.4, 'Friedenau', '12159'),
+      ]),
+    );
+    const r = await plzZones(api, { ortsteil: 'Schoeneberg' });
+    expect(r.total).toBe(3);
+    expect(r.zones[0].plzs).toEqual([
+      { plz: '10827', addresses: 2 },
+      { plz: '10823', addresses: 1 },
+    ]);
   });
 });
 

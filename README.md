@@ -16,7 +16,9 @@
 
 `/school` понимает адрес в любом виде: кириллицей, с опечатками, без PLZ, несколько через `;`. Если адрес есть в нескольких районах — спросит, какой.
 
-Номер дома в объявлении скрыт — `/school-plz 10439` или `/school-plz Schivelbeiner Straße, 10439` (терминал: `npm run plz -- --plz 10439 --street "Schivelbeiner Straße"`). Один PLZ обычно делится между 3–5 зонами Einschulbereich, поэтому ответ — не одна школа, а все зоны: доля адресов (домов, не квартир), школа и маркер 🟢🟡🔴 каждой зоны, какие дома в какой зоне. Точную школу даст только `/school` по полному адресу.
+Номер дома в объявлении скрыт — `/school-plz 10439`, `/school-plz Schivelbeiner Straße, 10439` или по району `/school-plz Friedenau`, несколько сразу через `;` — `/school-plz Friedenau; 12357 Berlin, Rudow; Handjerystraße, Friedenau` (до 5; запятые — части одного запроса) (терминал: `npm run plz -- --plz 10439 --street "Schivelbeiner Straße"`, `npm run plz -- --ortsteil Friedenau`). Один PLZ обычно делится между 3–5 зонами Einschulbereich, поэтому ответ — не одна школа, а все зоны: доля адресов (домов, не квартир), школа и маркер 🟢🟡🔴 каждой зоны, какие дома в какой зоне, карта зон; по району — ещё в каких PLZ лежит каждая зона (таблица «PLZ из объявления → зоны»). Точную школу даст только `/school` по полному адресу.
+
+В обоих отчётах есть свёрнутый блок «Переезд в Берлин посреди учебного года»: как Schulamt даёт место и что детей до 7 лет без немецкого берут сразу в обычный класс — цитатами SenBJF из `config/zuzug.json`, которые `canary` сверяет с документами.
 
 ## Настройка один раз
 
@@ -134,22 +136,31 @@ flowchart TD
 | ни одной | `no_school_in_zone` | ⚠️ 3 ближайшие к адресу |
 | адрес вне всех зон | `no_zone` | ⚠️ 3 ближайшие к адресу |
 | ручная поправка `esbOverrides` в `config/config.json` | `override` | школа из поправки |
+| поправка списком — общая зона нескольких школ («Gemeinsamer ESB» в справочнике округа) | `joint` | ⚠️ все школы списка закреплены, ближайшая первой; у каждой — маркер за 3 года и проверенные факты |
 
 При любом ⚠️ закреплённую школу стоит уточнить в Schulamt района.
+
+Поправки `esbOverrides` и их источники (коды зон — слоя `esb_2026`; `canary` проверяет, что зона есть в слое и школы — в реестре; не применилась — строка в `warnings`):
+
+| Зона | Школы | Источник |
+|---|---|---|
+| `0799` | `07G40`, `07G06` | [Adressverzeichnis der ESB der Grundschulen in Tempelhof-Schöneberg ab SJ 2026/2027](https://www.berlin.de/ba-tempelhof-schoeneberg/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/adressverzeichnis-der-esb-der-grundschulen-in-ts-ab-sj-2026-2027.pdf): «Gemeinsamer ESB der 40. Schule (Grundschule) und der Sternberg-Grundschule» |
 
 | Файл | Что делает |
 |---|---|
 | `src/cli.ts` | команды `resolve`, `lookup`, `plz`, `context`, `canary`, `preflight`, `startchancen`; сбой одного адреса не останавливает остальные |
 | `src/preflight.ts` | проверка критичных источников до запуска браузера |
-| `src/geo.ts` | WFS: адрес, зона, выбор школы, соседи |
+| `src/geo.ts` | WFS: адрес, зона, выбор школы, соседи; PLZ/район → зоны (`plzZones`), сверка `esbOverrides` (`checkOverrides`) |
 | `src/portrait.ts` | браузер, поиск школы по номеру, загрузка подстраниц, скриншоты |
 | `src/extract.ts` | список подстраниц (`PAGES`) и ключевых цифр (`KEY_FIGURES`) — новая метрика = новая строка |
 | `src/score.ts` | маркер 🟢🟡🔴 за 3 года: отмены уроков хуже средней по типу школ, дефицит учительских часов — в начале отчёта и в итоге в чат |
 | `src/startchancen.ts` | школа в программе Startchancen — по снимку `config/startchancen.json` |
-| `src/context.ts` | факты о школе из официальных источников: Claude находит, код скачивает документ и оставляет только дословные цитаты с датой и названием школы рядом; не больше 5 фактов, 2 на тему |
+| `src/context.ts` | факты о школе из официальных источников: Claude находит, код скачивает документ и оставляет только дословные цитаты с датой и названием школы рядом; не больше 5 фактов, 2 на тему, сверх лимита — важные темы (`PRIORITY`); на `429` berlin.de ждёт и повторяет |
+| `src/zuzug.ts` | блок «Переезд посреди учебного года» по снимку `config/zuzug.json`; `canary` сверяет цитаты |
 | `src/report.ts` | HTML-отчёт |
-| `config/config.json` | слой зон, число лет, соседей, адресов, адрес для canary |
+| `config/config.json` | слой зон, число лет, соседей, адресов, адрес для canary, поправки зон `esbOverrides` (коды зон — слоя `esbLayer`: при смене слоя сверить заново) |
 | `.claude/skills/school/SKILL.md` | что делает Claude по `/school` |
+| `.claude/skills/school-plz/SKILL.md` | что делает Claude по `/school-plz` |
 
 ## Команды
 
@@ -157,12 +168,14 @@ flowchart TD
 |---|---|
 | `npm run resolve -- --address "Kastanienallee 12"` | только адрес → кандидаты, без браузера |
 | `npm run lookup -- --input input.json` | полный прогон по файлу адресов (формат — в `SKILL.md`) |
-| `npm run context -- --dir out/<адрес>` | проверить `context.draft.json` по самим документам → `context.json` и заново `report.html`; для папки `plz-…` — по каждой школе зон, до 3 фактов на школу |
-| `npm run canary` | эталонный адрес проходит весь путь; при поломке сайта называет подстраницу и поле; сверяет снимок Startchancen с berlin.de |
+| `npm run plz -- --plz 10439 \| --ortsteil Friedenau [--street "…"]` | все зоны PLZ и/или района → `out/plz-…/` или `out/ortsteil-…/` |
+| `npm run plz -- --input plz-input.json` | до 5 запросов `{ "queries": [{ "plz"?, "ortsteil"?, "street"? }, …] }` за один прогон → массив сводок; сбой одного не останавливает остальные, повтор — `skipped` |
+| `npm run context -- --dir out/<адрес>` | проверить `context.draft.json` по самим документам → `context.json` и заново `report.html`; для папок `plz-…` и `ortsteil-…` — по каждой школе зон, до 3 фактов на школу |
+| `npm run canary` | эталонный адрес проходит весь путь; при поломке сайта называет подстраницу и поле; сверяет снимки Startchancen и правил переезда (`config/zuzug.json`: источник официальный, цитата дословно, дата документа) с сайтами и поправки `esbOverrides` со слоем зон и реестром школ |
 | `npm run update:startchancen` | перезаписать снимок списка Startchancen (если `canary` сказал, что список изменился) и закоммитить |
 | `npm run preflight` | доступны ли критичные источники; `lookup` и `canary` проверяют это сами и при сбое не запускаются (exit code 2) |
 | `npm test` | юнит-тесты на сохранённом HTML, без сети |
-| `npm run test:smoke` | живые проверки адрес → зона → школа (S1–S5) |
+| `npm run test:smoke` | живые проверки адрес → зона → школа (S1–S5), PLZ и район → зоны (S6–S8) |
 | `npm run typecheck` | проверка типов |
 
 CI (`.github/workflows/ci.yml`) на каждый push и PR в `main`: `npm ci` → `typecheck` → `npm test`, около 30 с. Живые сайты в CI не трогаем — их проверяют `test:smoke` и `canary`.

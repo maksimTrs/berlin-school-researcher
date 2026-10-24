@@ -23,6 +23,13 @@ export const CATEGORIES = {
 } as const;
 export type Category = keyof typeof CATEGORIES;
 
+/**
+ * Что важнее семье, когда фактов больше лимита: есть ли место, чья это зона, стройка, затем Willkommensklassen —
+ * для детей с 3 класса это главное, а детей до 7 лет по правилам SenBJF берут в обычный класс (config/zuzug.json);
+ * продлёнка и руководство — последними.
+ */
+export const PRIORITY: Record<Category, number> = { capacity: 0, catchment: 1, construction: 2, welcome_classes: 3, afterschool: 4, leadership: 5 };
+
 const DraftItem = z
   .object({
     category: z.enum(Object.keys(CATEGORIES) as [Category, ...Category[]]),
@@ -66,6 +73,8 @@ export const ContextSchema = z.object({
   rejected: z.array(RejectedSchema),
 });
 export const PlzContextSchema = z.object({ schools: z.array(ContextSchema) });
+// отчёт по адресу: одна закреплённая школа — Context; общая зона (joint) — по записи на каждую школу зоны, как у PLZ
+export const AddressContextSchema = z.union([ContextSchema, PlzContextSchema]);
 
 export type Context = z.infer<typeof ContextSchema>;
 export type ContextItem = Context['items'][number];
@@ -306,8 +315,15 @@ export const fetchFollowing =
   (api: Pick<APIRequestContext, 'get'>) =>
   async (url: string): Promise<Fetched> => {
     let current = url;
-    for (let hop = 0; hop <= 5; hop++) {
+    for (let hop = 0, waits = 0; hop <= 5; hop++) {
       const res = await api.get(current, { maxRedirects: 0, maxRetries: 1 });
+      // berlin.de отвечает 429 на частые запросы (Retry-After: 2) — ждём и повторяем, не больше 3 раз
+      if (res.status() === 429 && waits < 3) {
+        waits++;
+        hop--;
+        await new Promise((r) => setTimeout(r, Math.min(Number(res.headers()['retry-after']) || 2, 10) * 1000));
+        continue;
+      }
       const location = res.status() >= 300 && res.status() < 400 ? res.headers()['location'] : undefined;
       if (!location) return { url: current, status: res.status(), contentType: res.headers()['content-type'] ?? '', body: await res.body() };
       current = new URL(location, current).toString();
@@ -434,10 +450,12 @@ export async function verifyDraft(
     ok.push({ ...item, host: new URL(page.final).hostname, source: kind });
   }
 
-  // компактность: новые первыми, не больше maxPerCategory в категории и maxItems всего (у PLZ — на школу)
+  // компактность: опровержения профиля, затем важные темы (PRIORITY), в теме — новые первыми; не больше maxPerCategory в категории и maxItems всего (у PLZ — на школу)
   const items: ContextItem[] = [];
   const seen = new Set<string>();
-  for (const item of ok.sort((a, b) => b.published.localeCompare(a.published))) {
+  // факт, опровергающий поле профиля, — первым при любой теме: иначе по лимиту пропадёт и ⚠️ у поля
+  const rank = (i: ContextItem) => (i.contradicts ? -1 : PRIORITY[i.category]);
+  for (const item of ok.sort((a, b) => rank(a) - rank(b) || b.published.localeCompare(a.published))) {
     const key = `${item.url}|${normalize(item.quote)}`;
     const reject = (reason: string) => rejected.push({ url: item.url, summaryRu: item.summaryRu, reason });
     if (seen.has(key)) reject('повтор');
@@ -454,7 +472,7 @@ export async function verifyDraft(
     checkedAt: now.toISOString(),
     window: { publishedFrom: w.publishedFrom, plannedTo: w.plannedTo },
     queries: draft.queries,
-    items,
+    items: items.sort((a, b) => b.published.localeCompare(a.published)), // в отчёте — от новых к старым
     rejected,
   };
 }

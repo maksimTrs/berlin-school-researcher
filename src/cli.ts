@@ -2,9 +2,9 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
-import { ContextSchema, Draft, fetchFollowing, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
+import { AddressContextSchema, Draft, fetchFollowing, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
 import { KEY_FIGURES, keyFigure } from './extract.js';
-import { catchment, formatAddress, geocode, neighbors, onStreet, plzZones, resolveStatus, type School } from './geo.js';
+import { catchment, checkOverrides, formatAddress, geocode, neighbors, onStreet, overrideIgnored, plzZones, resolveStatus, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
 import { firstLine, preflight } from './preflight.js';
 import {
@@ -17,9 +17,10 @@ import {
   type PlzSchool,
   type SchoolEntry,
 } from './report.js';
-import { Input, parseAddress, PlzQuery, type AddressQuery } from './schema.js';
+import { Input, parseAddress, PlzInput, PlzQuery, type AddressQuery } from './schema.js';
 import { scoreProblems, scoreSchool, verdict } from './score.js';
 import { diffSchools, fetchStartchancen, saveSnapshot, startchancen } from './startchancen.js';
+import { verifyZuzug, zuzug } from './zuzug.js';
 
 const { positionals, values: args } = parseArgs({
   allowPositionals: true,
@@ -27,6 +28,7 @@ const { positionals, values: args } = parseArgs({
     input: { type: 'string' },
     address: { type: 'string' },
     plz: { type: 'string' },
+    ortsteil: { type: 'string' },
     street: { type: 'string' },
     dir: { type: 'string' },
     out: { type: 'string', default: 'out' },
@@ -96,16 +98,19 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
       tracePath: args.trace ? join(dir, 'trace.zip') : null,
     });
     const schools: SchoolEntry[] = [];
-    const warnings: string[] = [];
+    const warnings: string[] = [overrideIgnored(c)].filter((w) => w !== null);
     try {
       const page = await browser.context.newPage();
+      // общая зона: остальные её школы тоже закреплены — маркер за годы тренда (score), а не только текущий год
+      const other = c.status === 'joint' ? ('joint' as const) : ('candidate' as const);
       const plan = [
-        ...c.schools.map((school, i) => ({ school, role: i === 0 ? ('main' as const) : ('candidate' as const) })),
+        ...c.schools.map((school, i) => ({ school, role: i === 0 ? ('main' as const) : other })),
         ...near.map((school) => ({ school, role: 'neighbor' as const })),
       ];
+      const depth = { main: 'full', joint: 'score', candidate: 'key', neighbor: 'key' } as const;
       for (const { school, role } of plan) {
         try {
-          schools.push({ school, role, data: await collectSchool(page, school.bsn, role === 'main' ? 'full' : 'key', screensDir) });
+          schools.push({ school, role, data: await collectSchool(page, school.bsn, depth[role], screensDir) });
         } catch (e) {
           // без основной школы отчёта нет; кандидат или сосед — только строка в отчёте
           if (role === 'main') throw e;
@@ -119,7 +124,7 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
     const result: AddressResult = { ...base, status: 'ok', address: addr, alternatives, catchment: c, schools, warnings };
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
     // проверенные факты прошлого прогона не теряются при повторном lookup; дата проверки — в отчёте
-    writeFileSync(join(dir, 'report.html'), renderReport(result, readContext(dir, ContextSchema)));
+    writeFileSync(join(dir, 'report.html'), renderReport(result, readContext(dir, AddressContextSchema)));
     return { result, dir };
   } finally {
     await api.dispose();
@@ -162,6 +167,21 @@ async function contextCmd() {
     const result = raw as AddressResult;
     const main = result.schools[0];
     if (result.status !== 'ok' || !main) throw new Error(`${dir}: в result.json нет закреплённой школы`);
+    if (typeof draftJson === 'object' && draftJson !== null && 'schools' in draftJson) {
+      // общая зона: по черновику на каждую закреплённую школу (main и joint)
+      const ctx: PlzContext = { schools: [] };
+      const skipped: { bsn: string; reason: string }[] = [];
+      for (const d of PlzDraft.parse(draftJson).schools) {
+        const s = result.schools.find((x) => x.school.bsn === d.bsn && (x.role === 'main' || x.role === 'joint'));
+        const assigned = result.catchment?.schools.some((x) => x.bsn === d.bsn);
+        if (!s) skipped.push({ bsn: d.bsn, reason: assigned ? 'нет данных в result.json (Schulporträt не загрузился)' : 'не закреплённая школа этого адреса' });
+        else ctx.schools.push(await verifyDraft(d, s.school, s.data.profile, fetchUrl));
+      }
+      writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
+      writeFileSync(join(dir, 'report.html'), renderReport(result, ctx));
+      console.log(JSON.stringify({ schools: ctx.schools.map(brief), skipped, report: join(dir, 'report.html') }, null, 2));
+      return;
+    }
     const ctx = await verifyDraft(Draft.parse(draftJson), main.school, main.data.profile, fetchUrl);
     writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
     writeFileSync(join(dir, 'report.html'), renderReport(result, ctx));
@@ -184,6 +204,16 @@ function summarize({ result: r, dir }: { result: AddressResult; dir: string | nu
     school: main ? `${main.data.profile.name || main.school.name}` : null,
     bsn: main?.school.bsn ?? null,
     candidates: r.schools.filter((s) => s.role === 'candidate').map((s) => `${s.school.name} (${s.school.bsn})`),
+    // общая зона: остальные закреплённые школы — с маркером, как основная; без Schulporträt — verdict null (см. warnings)
+    joint: (r.catchment?.status === 'joint' ? r.catchment.schools.slice(1) : []).map((school) => {
+      const d = r.schools.find((s) => s.role === 'joint' && s.school.bsn === school.bsn)?.data;
+      return {
+        school: d?.profile.name || school.name,
+        bsn: school.bsn,
+        verdict: d ? verdict(scoreSchool(d)).text : null,
+        startchancen: startchancen().schools.includes(school.bsn),
+      };
+    }),
     warnings: r.warnings,
     verdict: main ? verdict(scoreSchool(main.data)).text : null,
     startchancen: main ? startchancen().schools.includes(main.school.bsn) : null,
@@ -233,7 +263,7 @@ async function lookupCmd() {
   if (out.some((s) => s.status === 'error')) process.exitCode = 1;
 }
 
-/** Все зоны PLZ (или улицы в нём) → школа каждой зоны с маркером за 3 года, без скриншотов. */
+/** Все зоны PLZ и/или района (или улицы в них) → школа каждой зоны с маркером за 3 года, без скриншотов. */
 async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | null }> {
   const api = await newApi();
   try {
@@ -242,7 +272,9 @@ async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | n
     if (!total) {
       return { result: { ...base, status: 'not_found', addresses: 0, zones: [], schools: [], warnings: [] }, dir: null };
     }
-    const dir = resolve(args.out!, slugify(`plz ${q.plz} ${q.street ?? ''}`));
+    // plz-10439, plz-10439-schivelbeiner-strasse, ortsteil-friedenau, ortsteil-friedenau-12161
+    const slug = q.ortsteil ? `ortsteil ${q.ortsteil} ${q.plz ?? ''}` : `plz ${q.plz}`;
+    const dir = resolve(args.out!, slugify(`${slug} ${q.street ?? ''}`));
     mkdirSync(dir, { recursive: true });
     // одна школа бывает в нескольких зонах (ближайшая к двум зонам без своей школы) — собираем её один раз
     const unique = [...new Map(zones.flatMap((z) => z.schools).map((s): [string, School] => [s.bsn, s])).values()];
@@ -252,7 +284,7 @@ async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | n
       tracePath: args.trace ? join(dir, 'trace.zip') : null,
     });
     const schools: PlzSchool[] = [];
-    const warnings: string[] = [];
+    const warnings: string[] = zones.map((z) => overrideIgnored(z)).filter((w) => w !== null);
     try {
       const page = await browser.context.newPage();
       for (const school of unique) {
@@ -285,6 +317,8 @@ function summarizePlz({ result: r, dir }: { result: PlzResult; dir: string | nul
       esb: z.esb,
       addresses: z.addresses,
       share: share(z.addresses, r.addresses),
+      // по району — в каких PLZ дома зоны: объявление называет PLZ
+      plzs: z.plzs.map((p) => `${p.plz}: ${p.addresses}`).join(', '),
       catchmentStatus: z.status,
       schools: z.schools.map((s) => {
         const d = data.get(s.bsn);
@@ -303,20 +337,36 @@ function summarizePlz({ result: r, dir }: { result: PlzResult; dir: string | nul
   };
 }
 
+/** Один запрос (--plz/--ortsteil/--street) → объект; файл (--input) → массив сводок, по одной на запрос, как у lookup. */
 async function plzCmd() {
-  const q = PlzQuery.parse({ plz: args.plz, street: args.street ?? null });
+  const batch = !!args.input;
+  const queries = batch
+    ? PlzInput.parse(JSON.parse(readFileSync(args.input!, 'utf8'))).queries
+    : [PlzQuery.parse({ plz: args.plz ?? null, ortsteil: args.ortsteil ?? null, street: args.street ?? null })];
   if (!(await sitesAvailable())) return;
-  try {
-    console.log(JSON.stringify(summarizePlz(await plzOne(q)), null, 2));
-  } catch (e) {
-    console.log(JSON.stringify({ input: plzTitle(q), status: 'error', error: firstLine(e) }, null, 2));
-    process.exitCode = 1;
+  const out = [];
+  const seen = new Set<string>();
+  // сбой одного запроса не теряет остальные; повтор того же запроса — та же папка, второй раз не собираем
+  for (const q of queries) {
+    const key = plzTitle(q).toLowerCase();
+    if (seen.has(key)) {
+      out.push({ input: plzTitle(q), status: 'skipped', error: 'повтор запроса выше' });
+      continue;
+    }
+    seen.add(key);
+    try {
+      out.push(summarizePlz(await plzOne(q)));
+    } catch (e) {
+      out.push({ input: plzTitle(q), status: 'error', error: firstLine(e) });
+    }
   }
+  console.log(JSON.stringify(batch ? out : out[0], null, 2));
+  if (out.some((s) => s.status === 'error')) process.exitCode = 1;
 }
 
 /**
  * Ежемесячная проверка: эталонный адрес проходит весь путь, ключевые подстраницы текущего года отдают данные,
- * входы маркера — за каждый год тренда.
+ * входы маркера — за каждый год тренда; снимки Startchancen и правил переезда совпадают с сайтом.
  */
 async function canaryCmd() {
   if (!(await sitesAvailable())) return;
@@ -341,17 +391,24 @@ async function canaryCmd() {
     problems.push(...scoreProblems(main.data, config.trendYears));
     if (main.data.screenshots.length !== 10) problems.push(`скриншотов ${main.data.screenshots.length}, ожидалось 10`);
   }
-  // снимок списка Startchancen в репозитории ещё совпадает с сайтом
+  // сверки снимков и поправок с сайтами: сбой одной — строка в problems, остальные всё равно идут
   const api = await newApi();
+  const check = async (what: string, run: () => Promise<string[]>) =>
+    problems.push(...(await run().catch((e) => [`${what}: ${firstLine(e)} — не сверено`])));
   try {
-    const { added, removed } = diffSchools(startchancen().schools, await fetchStartchancen(api));
-    if (added.length || removed.length) {
-      problems.push(
-        `Startchancen: список изменился (+${added.join(', ') || '—'}; −${removed.join(', ') || '—'}) — запусти npm run update:startchancen и закоммить`,
-      );
-    }
-  } catch (e) {
-    problems.push(`Startchancen: ${firstLine(e)} — снимок config/startchancen.json не сверен`);
+    // снимок списка Startchancen в репозитории ещё совпадает с сайтом
+    await check('Startchancen (config/startchancen.json)', async () => {
+      const { added, removed } = diffSchools(startchancen().schools, await fetchStartchancen(api));
+      return added.length || removed.length
+        ? [`Startchancen: список изменился (+${added.join(', ') || '—'}; −${removed.join(', ') || '—'}) — запусти npm run update:startchancen и закоммить`]
+        : [];
+    });
+    // поправки зон ещё указывают на существующие зону слоя и школы
+    await check('esbOverrides', () => checkOverrides(api));
+    // правила переезда посреди года: цитаты снимка ещё дословно в документах SenBJF
+    await check('Переезд (config/zuzug.json)', async () =>
+      (await verifyZuzug(zuzug(), fetchFollowing(api))).map((p) => `Переезд (config/zuzug.json): ${p} — найди новую формулировку и обнови снимок`),
+    );
   } finally {
     await api.dispose();
   }
@@ -390,7 +447,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = commands[positionals[0]];
 if (!cmd) {
   console.error(
-    'Использование: tsx src/cli.ts resolve|lookup|plz|context|canary|preflight|startchancen [--input f.json | --address "..." | --plz 10439 [--street "..."] | --dir out/<адрес>] [--headed --slowmo N --trace]',
+    'Использование: tsx src/cli.ts resolve|lookup|plz|context|canary|preflight|startchancen [--input f.json | --address "..." | --plz 10439 | --ortsteil Friedenau [--street "..."] | plz --input plz-input.json | --dir out/<адрес>] [--headed --slowmo N --trace]',
   );
   process.exit(2);
 }

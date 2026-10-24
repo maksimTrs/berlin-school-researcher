@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assignSchool, type School } from '../../src/geo.js';
+import { assignSchool, overrideIgnored, type School } from '../../src/geo.js';
 
 const school = (bsn: string, lon: number): School => ({
   bsn,
@@ -48,5 +48,21 @@ describe('assignSchool', () => {
       status: 'override',
       schools: [{ bsn: '01G20' }],
     });
+  });
+
+  it('override list = joint zone: all listed schools, nearest first', () => {
+    const r = assignSchool('0110', [a], all, { lon: 13.4035, lat: 52.5 }, { '0110': ['01G01', '01G20'] });
+    expect([r.status, r.schools.map((s) => s.bsn)]).toEqual(['joint', ['01G20', '01G01']]);
+  });
+
+  it('override with a school gone from the registry is ignored', () => {
+    expect(assignSchool('0110', [a], all, home, { '0110': ['01G01', '01G99'] }).status).toBe('exact');
+  });
+
+  it('overrideIgnored: an override that fell back to the map is a warning; applied or absent — none', () => {
+    const o = { '0110': ['01G01', '01G99'] };
+    expect(overrideIgnored({ esb: '0110', status: 'exact' }, o)).toContain('Поправка esbOverrides для зоны 0110 (01G01, 01G99) не применена');
+    expect(overrideIgnored({ esb: '0110', status: 'joint' }, o)).toBeNull();
+    expect(overrideIgnored({ esb: '0111', status: 'exact' }, o)).toBeNull();
   });
 });

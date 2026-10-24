@@ -1,4 +1,4 @@
-// Живые сервисы gdi.berlin.de, эталонные адреса S1–S5 и PLZ S6–S7 (значения сняты 23.10.2026). Портрет школы проверяет `npm run canary`.
+// Живые сервисы gdi.berlin.de, эталонные адреса S1–S5, PLZ и район S6–S8 (значения сняты 23.10.2026). Портрет школы проверяет `npm run canary`.
 import type { APIRequestContext } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { newApi } from '../src/config.js';
@@ -80,5 +80,19 @@ describe('smoke: PLZ → zones', { timeout: 30_000 }, () => {
       ['0311', '03G11', '23', '49'],
       ['0314', '03G14', '1', '22'],
     ]);
+  });
+
+  it('S8 Ortsteil Friedenau → 1506 addresses in 4 zones; 0799 is the joint zone of 07G40 and 07G06 (esbOverrides)', async () => {
+    const { total, zones } = await plzZones(api, { ortsteil: 'Friedenau' });
+    expect(total).toBe(1506);
+    expect(zones.map((z) => [z.esb, z.addresses])).toEqual([
+      ['0717', 734],
+      ['0716', 535],
+      ['0715', 191],
+      ['0799', 46],
+    ]);
+    expect(zones[3].status).toBe('joint');
+    expect(zones[3].schools.map((s) => s.bsn).sort()).toEqual(['07G06', '07G40']);
+    expect(zones[0].plzs[0]).toEqual({ plz: '12161', addresses: 541 });
   });
 });
