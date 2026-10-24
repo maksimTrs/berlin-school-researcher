@@ -212,10 +212,10 @@ const checkedNote = (ctx: Context) =>
   `<p class="note">Проверено ${esc(ctx.checkedAt.slice(0, 10))}: публикации с ${esc(ctx.window.publishedFrom)} и планы до ${esc(ctx.window.plannedTo)}, только официальные источники, каждый факт сверен с документом.</p>`;
 
 /** Раздел фактов о закреплённой школе в отчёте по адресу. */
-function contextBlock(ctx: Context | null): string {
+function contextBlock(ctx: Context | null, school?: string): string {
   if (!ctx) return '';
   return `<section class="context">
-  <h2>Что известно из официальных источников</h2>
+  <h2>Что известно из официальных источников${school ? ` — ${esc(school)}` : ''}</h2>
   ${ctx.items.length ? factsList(ctx) : '<p>Сообщений о школе за этот период не найдено.</p>'}
   ${checkedNote(ctx)}
 </section>`;
@@ -267,7 +267,7 @@ export function renderReport(r: AddressResult, ctx: Context | PlzContext | null 
   ${startchancenNote(o.school)}
   ${scoreBlock(o.data, (o.data.pages.vunt ?? []).map((y) => y.year))}
 </section>
-${contextBlock(facts.get(o.school.bsn) ?? null)}`,
+${contextBlock(facts.get(o.school.bsn) ?? null, o.data.profile.name || o.school.name)}`,
     )
     .join('');
 
@@ -313,7 +313,7 @@ ${contextBlock(facts.get(o.school.bsn) ?? null)}`,
   <div class="meta">Адрес: <b>${esc(formatAddress(addr))}</b> (${esc(addr.bezirk)})${r.input.raw ? ` · ввод: «${esc(r.input.raw)}»` : ''}</div>
 </header>
 
-${st.warn ? `<p class="warn">⚠️ ${esc(st.text)}.</p>` : `<p class="meta">${esc(st.text)}.</p>`}
+${st.warn ? `<p class="warn">⚠️ ${esc(st.text)}${c.status === 'joint' ? `: ${c.schools.map((s) => `${esc(s.name)} (${esc(s.bsn)})`).join(', ')}` : ''}.</p>` : `<p class="meta">${esc(st.text)}.</p>`}
 ${
   r.alternatives.length
     ? `<p class="warn">⚠️ Адрес неоднозначен, взят первый вариант. Другие: ${r.alternatives.map((a) => esc(formatAddress(a))).join('; ')}.</p>`
@@ -328,7 +328,7 @@ ${
   ${scoreBlock(main.data, years)}
 </section>
 
-${contextBlock(mainCtx)}
+${contextBlock(mainCtx, c.status === 'joint' ? main.data.profile.name || main.school.name : undefined)}
 
 ${jointSections}
 

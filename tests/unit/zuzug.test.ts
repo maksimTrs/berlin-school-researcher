@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Fetched } from '../../src/context.js';
+import { foreignNumbers, type Fetched as F } from '../../src/context.js';
 import { verifyZuzug, zuzug, type Zuzug } from '../../src/zuzug.js';
 
 const html = (url: string, text: string, status = 200): Fetched => ({
@@ -19,8 +20,19 @@ const snap: Zuzug = {
 };
 
 describe('zuzug snapshot', () => {
-  it('config/zuzug.json parses', () => {
+  it('config/zuzug.json parses, and no summary adds a number its quote lacks', () => {
     expect(zuzug().items.length).toBeGreaterThan(0);
+    expect(zuzug().items.filter((i) => foreignNumbers(i.summaryRu, i.quote).length).map((i) => i.summaryRu)).toEqual([]);
+  });
+
+  it('a summary with a number not in its quote is a problem', async () => {
+    const snap1: Zuzug = {
+      checkedAt: '2026-10-24',
+      items: [{ url: 'https://www.berlin.de/sen/a', published: null, quote: 'in den ersten beiden Jahrgangsstufen im Rahmen der Schulanfangsphase', summaryRu: 'В 1–2 классе — Schulanfangsphase' }],
+      links: [],
+    };
+    const fetch = async (url: string): Promise<F> => html(url, 'in den ersten beiden Jahrgangsstufen im Rahmen der Schulanfangsphase');
+    expect(await verifyZuzug(snap1, fetch)).toEqual(['https://www.berlin.de/sen/a: в пересказе числа, которых нет в цитате: 1, 2']);
   });
 
   it('all quotes found and links load → no problems', async () => {

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { findQuote, isDocumentDate, normalize, pageText, sourceKind, type Fetched } from './context.js';
+import { findQuote, foreignNumbers, isDocumentDate, normalize, pageText, sourceKind, type Fetched } from './context.js';
 
 /**
  * Переезд в Берлин посреди учебного года: как распределяют в школу. Правила общие для Берлина и меняются редко —
@@ -50,6 +50,9 @@ export async function verifyZuzug(snap: Zuzug, fetchUrl: (url: string) => Promis
   };
   const problems: string[] = [];
   for (const i of snap.items) {
+    // как в context.ts: пересказ не добавляет чисел, которых нет в цитате
+    const foreign = foreignNumbers(i.summaryRu, i.quote);
+    if (foreign.length) problems.push(`${i.url}: в пересказе числа, которых нет в цитате: ${foreign.join(', ')}`);
     const text = await load(i.url).catch(() => null); // ошибку загрузки называем один раз — ниже, по URL
     if (text === null) continue;
     if (!findQuote(text, i.quote)) problems.push(`${i.url}: цитаты «${i.quote.slice(0, 60)}…» больше нет в документе`);

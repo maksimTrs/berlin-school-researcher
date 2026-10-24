@@ -11,7 +11,7 @@ const Config = z.object({
   viewport: z.object({ width: z.number(), height: z.number() }),
   // ручные поправки «код зоны → bsn школы» из справочника района; список — общая зона нескольких школ (gemeinsamer ESB);
   // приоритет над пространственным сопоставлением. Коды зон — слоя esbLayer: при смене слоя сверить заново
-  esbOverrides: z.record(z.string(), z.union([z.string().regex(/^\d{2}[A-Z]\d{2}$/), z.array(z.string().regex(/^\d{2}[A-Z]\d{2}$/)).min(2)])),
+  esbOverrides: z.record(z.string(), z.union([z.string().regex(/^\d{2}[A-Z]\d{2}$/), z.array(z.string().regex(/^\d{2}[A-Z]\d{2}$/)).min(2).refine((l) => new Set(l).size === l.length, 'школа дважды в поправке')])),
   // факты из официальных источников в начале отчёта (src/context.ts)
   context: z.object({
     pastMonths: z.number().int().min(1), // публикации не старше

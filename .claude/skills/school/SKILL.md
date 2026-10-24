@@ -146,7 +146,7 @@ argument-hint: <адрес>[; <адрес> ...]
 ## 5. Итог в чат
 
 На каждый адрес — несколько строк из сводки lookup:
-- `school` и `bsn`; `catchmentStatus`: `exact` / `override` — без пометок; `joint` — «⚠️ общая зона нескольких школ: закреплены все» и по каждой школе из `joint` строка «школа, `bsn`, `verdict`, 🔶/ℹ️ Startchancen» и её 📌 факты из stdout `context` (`schools[]`); остальное — ⚠️, `candidates` и «уточнить в Schulamt района»;
+- `school` и `bsn`; `catchmentStatus`: `exact` / `override` — без пометок; `joint` — «⚠️ общая зона нескольких школ: закреплены все» и по каждой школе из `joint` строка «школа, `bsn`, `verdict`, 🔶/ℹ️ Startchancen» и её 📌 факты из stdout `context` (`schools[]`); `verdict: null` — «⚠️ нет данных: Schulporträt не загрузился» (причина — в `warnings`), черновик фактов по ней не пиши; остальное — ⚠️, `candidates` и «уточнить в Schulamt района»;
 - `verdict` — как есть, без пересказа и своих оценок;
 - `startchancen: true` — строка «🔶 В программе Startchancen: больше учеников из социально неблагополучных семей, дополнительные деньги и персонал (что это значит — в отчёте)»; `false` — «ℹ️ Не в программе Startchancen»;
 - ⚠️ `alternatives` адреса, если есть;

@@ -520,7 +520,10 @@ describe('report', () => {
     const joint: AddressResult = {
       ...result,
       catchment: { ...result.catchment!, status: 'joint', schools: [school, other] },
-      schools: [...result.schools, { school: other, role: 'joint', data: { ...result.schools[0].data, bsn: '07G40' } }],
+      schools: [
+        ...result.schools,
+        { school: other, role: 'joint', data: { ...result.schools[0].data, bsn: '07G40', profile: { name: '40. Schule (Grundschule) - 07G40', fields: [] } } },
+      ],
     };
     const ctx = {
       schools: [
@@ -531,6 +534,8 @@ describe('report', () => {
     const html = renderReport(joint, ctx);
     expect(html).toContain('<h2>Одна из закреплённых школ общей зоны · 07G32</h2>');
     expect(html).toContain('<h2>Тоже закреплённая школа общей зоны · 07G40</h2>');
+    expect(html).toContain(': Bruno-H.-Bürgel-Grundschule (07G32), 40. Schule (Grundschule) (07G40).</p>'); // все школы зоны — и без данных
+    expect(html).toContain('<h2>Что известно из официальных источников — 40. Schule (Grundschule) - 07G40</h2>');
     expect(html.match(/Сообщений о школе за этот период не найдено/g)).toHaveLength(2); // факты проверены по обеим
     expect(html).toContain('<td>закреплённая (общая зона)</td>');
   });

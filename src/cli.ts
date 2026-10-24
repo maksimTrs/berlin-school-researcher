@@ -167,13 +167,14 @@ async function contextCmd() {
     const result = raw as AddressResult;
     const main = result.schools[0];
     if (result.status !== 'ok' || !main) throw new Error(`${dir}: в result.json нет закреплённой школы`);
-    if ('schools' in draftJson) {
+    if (typeof draftJson === 'object' && draftJson !== null && 'schools' in draftJson) {
       // общая зона: по черновику на каждую закреплённую школу (main и joint)
       const ctx: PlzContext = { schools: [] };
       const skipped: { bsn: string; reason: string }[] = [];
       for (const d of PlzDraft.parse(draftJson).schools) {
         const s = result.schools.find((x) => x.school.bsn === d.bsn && (x.role === 'main' || x.role === 'joint'));
-        if (!s) skipped.push({ bsn: d.bsn, reason: 'не закреплённая школа этого адреса в result.json' });
+        const assigned = result.catchment?.schools.some((x) => x.bsn === d.bsn);
+        if (!s) skipped.push({ bsn: d.bsn, reason: assigned ? 'нет данных в result.json (Schulporträt не загрузился)' : 'не закреплённая школа этого адреса' });
         else ctx.schools.push(await verifyDraft(d, s.school, s.data.profile, fetchUrl));
       }
       writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
@@ -203,15 +204,16 @@ function summarize({ result: r, dir }: { result: AddressResult; dir: string | nu
     school: main ? `${main.data.profile.name || main.school.name}` : null,
     bsn: main?.school.bsn ?? null,
     candidates: r.schools.filter((s) => s.role === 'candidate').map((s) => `${s.school.name} (${s.school.bsn})`),
-    // общая зона: остальные закреплённые школы — с маркером, как основная
-    joint: r.schools
-      .filter((s) => s.role === 'joint')
-      .map((s) => ({
-        school: s.data.profile.name || s.school.name,
-        bsn: s.school.bsn,
-        verdict: verdict(scoreSchool(s.data)).text,
-        startchancen: startchancen().schools.includes(s.school.bsn),
-      })),
+    // общая зона: остальные закреплённые школы — с маркером, как основная; без Schulporträt — verdict null (см. warnings)
+    joint: (r.catchment?.status === 'joint' ? r.catchment.schools.slice(1) : []).map((school) => {
+      const d = r.schools.find((s) => s.role === 'joint' && s.school.bsn === school.bsn)?.data;
+      return {
+        school: d?.profile.name || school.name,
+        bsn: school.bsn,
+        verdict: d ? verdict(scoreSchool(d)).text : null,
+        startchancen: startchancen().schools.includes(school.bsn),
+      };
+    }),
     warnings: r.warnings,
     verdict: main ? verdict(scoreSchool(main.data)).text : null,
     startchancen: main ? startchancen().schools.includes(main.school.bsn) : null,
@@ -373,29 +375,24 @@ async function canaryCmd() {
     problems.push(...scoreProblems(main.data, config.trendYears));
     if (main.data.screenshots.length !== 10) problems.push(`скриншотов ${main.data.screenshots.length}, ожидалось 10`);
   }
-  // снимок списка Startchancen в репозитории ещё совпадает с сайтом
+  // сверки снимков и поправок с сайтами: сбой одной — строка в problems, остальные всё равно идут
   const api = await newApi();
+  const check = async (what: string, run: () => Promise<string[]>) =>
+    problems.push(...(await run().catch((e) => [`${what}: ${firstLine(e)} — не сверено`])));
   try {
-    const { added, removed } = diffSchools(startchancen().schools, await fetchStartchancen(api));
-    if (added.length || removed.length) {
-      problems.push(
-        `Startchancen: список изменился (+${added.join(', ') || '—'}; −${removed.join(', ') || '—'}) — запусти npm run update:startchancen и закоммить`,
-      );
-    }
-  } catch (e) {
-    problems.push(`Startchancen: ${firstLine(e)} — снимок config/startchancen.json не сверен`);
-  }
-  try {
+    // снимок списка Startchancen в репозитории ещё совпадает с сайтом
+    await check('Startchancen (config/startchancen.json)', async () => {
+      const { added, removed } = diffSchools(startchancen().schools, await fetchStartchancen(api));
+      return added.length || removed.length
+        ? [`Startchancen: список изменился (+${added.join(', ') || '—'}; −${removed.join(', ') || '—'}) — запусти npm run update:startchancen и закоммить`]
+        : [];
+    });
     // поправки зон ещё указывают на существующие зону слоя и школы
-    problems.push(...(await checkOverrides(api)));
-  } catch (e) {
-    problems.push(`esbOverrides: ${firstLine(e)} — поправки не сверены`);
-  }
-  try {
+    await check('esbOverrides', () => checkOverrides(api));
     // правила переезда посреди года: цитаты снимка ещё дословно в документах SenBJF
-    for (const p of await verifyZuzug(zuzug(), fetchFollowing(api))) problems.push(`Переезд (config/zuzug.json): ${p} — найди новую формулировку и обнови снимок`);
-  } catch (e) {
-    problems.push(`Переезд: ${firstLine(e)} — снимок config/zuzug.json не сверен`);
+    await check('Переезд (config/zuzug.json)', async () =>
+      (await verifyZuzug(zuzug(), fetchFollowing(api))).map((p) => `Переезд (config/zuzug.json): ${p} — найди новую формулировку и обнови снимок`),
+    );
   } finally {
     await api.dispose();
   }

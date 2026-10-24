@@ -28,7 +28,7 @@ export type Category = keyof typeof CATEGORIES;
  * для детей с 3 класса это главное, а детей до 7 лет по правилам SenBJF берут в обычный класс (config/zuzug.json);
  * продлёнка и руководство — последними.
  */
-export const PRIORITY: Category[] = ['capacity', 'catchment', 'construction', 'welcome_classes', 'afterschool', 'leadership'];
+export const PRIORITY: Record<Category, number> = { capacity: 0, catchment: 1, construction: 2, welcome_classes: 3, afterschool: 4, leadership: 5 };
 
 const DraftItem = z
   .object({
@@ -454,7 +454,7 @@ export async function verifyDraft(
   const items: ContextItem[] = [];
   const seen = new Set<string>();
   // факт, опровергающий поле профиля, — первым при любой теме: иначе по лимиту пропадёт и ⚠️ у поля
-  const rank = (i: ContextItem) => (i.contradicts ? -1 : PRIORITY.indexOf(i.category));
+  const rank = (i: ContextItem) => (i.contradicts ? -1 : PRIORITY[i.category]);
   for (const item of ok.sort((a, b) => rank(a) - rank(b) || b.published.localeCompare(a.published))) {
     const key = `${item.url}|${normalize(item.quote)}`;
     const reject = (reason: string) => rejected.push({ url: item.url, summaryRu: item.summaryRu, reason });
