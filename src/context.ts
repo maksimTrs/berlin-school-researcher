@@ -447,10 +447,11 @@ export async function verifyDraft(
     ok.push({ ...item, host: new URL(page.final).hostname, source: kind });
   }
 
-  // компактность: важные темы (PRIORITY), в теме — новые первыми; не больше maxPerCategory в категории и maxItems всего (у PLZ — на школу)
+  // компактность: опровержения профиля, затем важные темы (PRIORITY), в теме — новые первыми; не больше maxPerCategory в категории и maxItems всего (у PLZ — на школу)
   const items: ContextItem[] = [];
   const seen = new Set<string>();
-  const rank = (i: ContextItem) => PRIORITY.indexOf(i.category);
+  // факт, опровергающий поле профиля, — первым при любой теме: иначе по лимиту пропадёт и ⚠️ у поля
+  const rank = (i: ContextItem) => (i.contradicts ? -1 : PRIORITY.indexOf(i.category));
   for (const item of ok.sort((a, b) => rank(a) - rank(b) || b.published.localeCompare(a.published))) {
     const key = `${item.url}|${normalize(item.quote)}`;
     const reject = (reason: string) => rejected.push({ url: item.url, summaryRu: item.summaryRu, reason });

@@ -110,6 +110,22 @@ describe('zone map', () => {
     expect(svg.match(/class="school"/g)).toHaveLength(1); // одна школа двух зон — один маркер
     expect(zoneMap([{ ...z('0717', 13.32), geometry: undefined, points: undefined }])).toBe('');
   });
+
+  it('a north–south street (1 km long, 50 m wide) stays inside the viewBox', () => {
+    const points = Array.from({ length: 20 }, (_, i): [number, number] => [13.41, 52.53 + i * 0.0005]);
+    const svg = zoneMap([
+      {
+        esb: '0314', esbText: null, status: 'exact', addresses: 20, plzs: [], streets: [],
+        schools: [{ bsn: '03G14', name: 'X', lon: 13.4105, lat: 52.535 } as ZoneShare['schools'][number]],
+        geometry: { type: 'Polygon', coordinates: [[[13.405, 52.529], [13.415, 52.529], [13.415, 52.541], [13.405, 52.529]]] },
+        points,
+      },
+    ]);
+    const [, , w, h] = svg.match(/viewBox="([^"]+)"/)![1].split(' ').map(Number);
+    const ys = [...svg.matchAll(/<circle cx="([-\d.]+)" cy="([-\d.]+)" r="2"/g)].map((m) => [+m[1], +m[2]]);
+    expect(ys).toHaveLength(20);
+    expect(ys.every(([x, y]) => x >= 0 && x <= w && y >= 0 && y <= h)).toBe(true);
+  });
 });
 
 describe('share', () => {

@@ -159,7 +159,14 @@ function startchancenNote(s: School): string {
 
 /** Переезд в Берлин посреди учебного года — цитаты SenBJF из снимка config/zuzug.json, свёрнуто: нужно не всем. */
 function zuzugBlock(): string {
-  const z = zuzug();
+  let z: ReturnType<typeof zuzug>;
+  try {
+    z = zuzug();
+  } catch (e) {
+    // испорченный снимок не должен стоить отчёта после полного прогона браузера — тогда без блока
+    console.warn(`config/zuzug.json: не читается (${(e as Error).message.split('\n')[0]}) — отчёт без блока о переезде`);
+    return '';
+  }
   return `<details class="zuzug"><summary>🧳 Переезд в Берлин посреди учебного года — как дают место в школе</summary>
     <ul>${z.items.map((i) => `<li>${esc(i.summaryRu)} <small>${link(i.url, new URL(i.url).pathname.endsWith('.pdf') ? 'PDF SenBJF' : 'berlin.de')}</small></li>`).join('')}</ul>
     <p>${z.links.map((l) => link(l.url, l.label)).join('<br>')}</p>
@@ -176,7 +183,7 @@ const MEANING: Record<Category, string> = {
   construction:
     'Стройка идёт годами: шум, временные модули, закрытая часть двора. После неё — больше комнат и новое оснащение. Важно, какой этап придётся на годы ребёнка в школе.',
   welcome_classes:
-    'Willkommensklasse — отдельная группа для детей без немецкого до перехода в обычный класс. Детей до 7 лет (1–2 класс) по правилам SenBJF обычно берут сразу в обычный класс с обязательными доп. уроками немецкого, группа для них — исключение. С 3 класса — Willkommensklasse или обычный класс; школу назначает Schulamt района.',
+    'Willkommensklasse — отдельная группа для детей без немецкого до перехода в обычный класс. По правилам SenBJF (блок «Переезд» в отчёте) недавно приехавших детей до 7 лет берут сразу в обычный 1–2 класс с обязательными доп. уроками немецкого, группа для них — исключение; с 3 класса — Willkommensklasse или обычный класс. Школу назначает Schulamt района.',
   catchment:
     'Меняются границы школьной зоны: адрес может отойти к другой школе. Действует зона того года, когда ребёнок поступает, — проверьте её заново перед подачей документов.',
   leadership:
@@ -447,8 +454,9 @@ export function zoneMap(zones: ZoneShare[]): string {
   const pad = 0.08;
   const spanX = Math.max((lon1 - lon0) * kx, 0.002) * (1 + 2 * pad);
   const spanY = Math.max(lat1 - lat0, 0.002) * (1 + 2 * pad);
-  const scale = MAP_W / spanX;
-  const h = Math.round(Math.min(spanY * scale, MAP_W * 1.2));
+  // масштаб — по более тесной стороне: вытянутая с севера на юг улица не уходит за край карты
+  const scale = Math.min(MAP_W / spanX, (MAP_W * 1.2) / spanY);
+  const h = Math.round(spanY * scale);
   const cx = (lon0 + lon1) / 2;
   const cy = (lat0 + lat1) / 2;
   const x = (lon: number) => (MAP_W / 2 + (lon - cx) * kx * scale).toFixed(1);

@@ -213,6 +213,17 @@ describe('checks', () => {
 });
 
 describe('verifyDraft', () => {
+  it('over the limit, a fact that contradicts the profile stays first, whatever its topic', async () => {
+    const capacity = item({
+      category: 'capacity',
+      quote: 'Weil in den kommenden Jahren … wird die Melli-Beese-Schule zu einer 3,5-zügigen Grundschule ausgebaut.',
+      summaryRu: 'Школу расширяют до 3,5 классов на параллель',
+    });
+    const field = profile.fields[0][0];
+    const ctx = await verifyDraft(draft('09G06', [capacity, item({ contradicts: field })]), MELLI, profile, fetchFixture, NOW, 1);
+    expect(ctx.items.map((i) => [i.category, i.contradicts])).toEqual([['construction', field]]);
+  });
+
   it('over the limit, the more important topic stays (capacity before construction), whatever the draft order', async () => {
     const capacity = item({
       category: 'capacity',
@@ -321,7 +332,7 @@ describe('verifyDraft', () => {
     expect(html.rejected.map((r) => r.reason)).toEqual(['на сайте-зеркале не документ ведомства']);
   });
 
-  it('compact: newest first, at most 2 per category, duplicates dropped', async () => {
+  it('compact: one topic — newest first, at most 2 per category, duplicates dropped', async () => {
     const q = (quote: string) => item({ quote, summaryRu: 'Пристройка и ремонт школы' });
     const ctx = await verifyDraft(
       draft('09G06', [
