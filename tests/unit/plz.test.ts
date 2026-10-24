@@ -124,6 +124,7 @@ describe('zone map', () => {
     const svg = zoneMap([z('0717', 13.32), z('0716', 13.34)]);
     expect(svg.match(/class="label"[^>]*>(\d+)</g)?.map((t) => t.slice(-5, -1))).toEqual(['0717', '0716']);
     expect(svg.match(/class="school"/g)).toHaveLength(1); // одна школа двух зон — один маркер
+    expect(svg).toMatch(/^<details class="zone-map-box"><summary>🗺 Карта зон \(2\)<\/summary>/); // свёрнута по умолчанию
     expect(zoneMap([{ ...z('0717', 13.32), geometry: undefined, points: undefined }])).toBe('');
   });
 

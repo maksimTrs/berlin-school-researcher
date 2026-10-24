@@ -425,7 +425,7 @@ details img { display: block; margin-top: 8px; max-width: 100%; height: auto; }
 .context ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
 .context p { margin: 0; }
 .context details p { margin: 6px 0 0; }
-.zone-map { margin: 0; display: grid; gap: 6px; }
+.zone-map { margin: 8px 0 0; display: grid; gap: 6px; }
 .zone-map svg { display: block; width: 100%; min-width: 640px; height: auto; max-height: 80vh; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
 .zone-map .zone { fill: var(--zone-fill); stroke: var(--accent); stroke-width: 2; fill-rule: evenodd; }
 .zone-map .zone:hover { fill: var(--zone-hover); }
@@ -523,12 +523,15 @@ export function zoneMap(zones: ZoneShare[]): string {
       return `<text class="label" x="${px.toFixed(1)}" y="${py.toFixed(1)}">${esc(z.esb)}</text>`;
     })
     .join('');
-  return `<figure class="zone-map">
+  // свёрнута: таблица зон выше — основной вид, карта длинная и нужна не каждому
+  return `<details class="zone-map-box"><summary>🗺 Карта зон (${withPoints.length})</summary>
+  <figure class="zone-map">
     <div class="scroll"><svg viewBox="0 0 ${MAP_W} ${h}" role="img" aria-label="Карта зон Einschulbereich: границы зон, дома запроса и школы">
       <g class="zones">${areas}</g><g class="dots">${dots}</g><g>${labels}</g>${marks}
     </svg></div>
     <figcaption>Границы зон Einschulbereich (номер зоны — на карте), точки — дома запроса, кружки с номером — школы. Наведите на зону или школу — подсказка; на телефоне карта листается вбок.</figcaption>
-  </figure>`;
+  </figure>
+  </details>`;
 }
 
 /** «ℹ️ Ещё 100 адресов PLZ 14197 — в других районах (Schmargendorf), в отчёт не вошли: зоны 0716 Ruppin-Grundschule (40), …». */
