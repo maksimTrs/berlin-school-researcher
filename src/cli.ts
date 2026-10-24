@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
-import { AddressContextSchema, Draft, fetchFollowing, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
+import { AddressContextSchema, Draft, fetchFollowing, longTerm, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
 import { currentFigures, KEY_FIGURES, keyFigure } from './extract.js';
 import { basemap, catchment, checkOverrides, checkWithoutZone, formatAddress, geocode, neighbors, onStreet, overrideIgnored, plzZones, resolveStatus, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
@@ -135,7 +135,7 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
 
 const brief = (ctx: Context) => ({
   bsn: ctx.bsn,
-  items: ctx.items.map(({ category, published, planned, summaryRu, url }) => ({ category, published, planned, summaryRu, url })),
+  items: ctx.items.map((i) => ({ category: i.category, published: i.published, planned: i.planned, longTerm: longTerm(i, ctx.window.plannedTo), summaryRu: i.summaryRu, url: i.url })),
   rejected: ctx.rejected,
 });
 

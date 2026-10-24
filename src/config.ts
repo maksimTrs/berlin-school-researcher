@@ -17,6 +17,7 @@ const Config = z.object({
   context: z.object({
     pastMonths: z.number().int().min(1), // публикации не старше
     futureMonths: z.number().int().min(0), // план, который наступит не позже
+    constructionFutureMonths: z.number().int().min(0), // стройка — на годы начальной школы вперёд; позже futureMonths — «дальний план»
     plannedMaxAgeMonths: z.number().int().min(1), // …но и сам план объявлен не раньше
     maxItems: z.number().int().min(1),
     plzMaxItemsPerSchool: z.number().int().min(1), // в отчёте по PLZ школ несколько — фактов на каждую меньше

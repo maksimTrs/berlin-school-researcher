@@ -67,7 +67,7 @@ const RejectedSchema = z.object({ url: z.string(), summaryRu: z.string(), reason
 export const ContextSchema = z.object({
   bsn: z.string(),
   checkedAt: z.string(),
-  window: z.object({ publishedFrom: z.string(), plannedTo: z.string() }),
+  window: z.object({ publishedFrom: z.string(), plannedTo: z.string(), constructionTo: z.string().optional() }), // в старых context.json constructionTo нет
   queries: z.array(z.string()),
   items: z.array(DraftItem.extend({ host: z.string(), source: z.enum(['official', 'mirror']) })), // от новых к старым
   rejected: z.array(RejectedSchema),
@@ -284,21 +284,33 @@ const berlinMonth = (now: Date) => {
 
 export function contextWindow(now: Date) {
   const n = berlinMonth(now);
-  return { now: n, publishedFrom: monthOf(n - config.context.pastMonths), plannedTo: monthOf(n + config.context.futureMonths) };
+  return {
+    now: n,
+    publishedFrom: monthOf(n - config.context.pastMonths),
+    plannedTo: monthOf(n + config.context.futureMonths),
+    constructionTo: monthOf(n + config.context.constructionFutureMonths),
+  };
 }
 
-/** Публикация за последние pastMonths или план, который наступит в ближайшие futureMonths. null — подходит. */
-export function outOfWindow(item: Pick<DraftItem, 'published' | 'planned'>, now: Date): string | null {
+/** Дальний план: начнётся позже окна plannedTo — так можно только стройке (constructionFutureMonths). */
+export const longTerm = (item: Pick<DraftItem, 'planned'>, plannedTo: string) => !!item.planned && monthIndex(item.planned) > monthIndex(plannedTo);
+
+/**
+ * Публикация за последние pastMonths или план, который наступит в ближайшие futureMonths
+ * (стройка — constructionFutureMonths: ребёнок проучится в начальной школе ~6 лет). null — подходит.
+ */
+export function outOfWindow(item: Pick<DraftItem, 'published' | 'planned'> & { category?: Category }, now: Date): string | null {
   const w = contextWindow(now);
+  const construction = item.category === 'construction';
   const pub = monthIndex(item.published);
   if (pub > w.now) return 'дата публикации в будущем';
   if (w.now - pub <= config.context.pastMonths) return null;
   if (item.planned && w.now - pub <= config.context.plannedMaxAgeMonths) {
     const from = monthIndex(item.planned);
     const to = item.planned.length === 4 ? from + 11 : from;
-    if (to >= w.now && from <= monthIndex(w.plannedTo)) return null;
+    if (to >= w.now && from <= monthIndex(construction ? w.constructionTo : w.plannedTo)) return null;
   }
-  return `старше ${config.context.pastMonths} мес. и не план на ближайшие ${config.context.futureMonths} мес.`;
+  return `старше ${config.context.pastMonths} мес. и не план на ближайшие ${construction ? config.context.constructionFutureMonths : config.context.futureMonths} мес.`;
 }
 
 /** «berlin.de/ba-» — домен с поддоменами и начало пути: на berlin.de есть и ленты агентств (/aktuelles/berlin/). */
@@ -472,7 +484,9 @@ export async function verifyDraft(
   const items: ContextItem[] = [];
   const seen = new Set<string>();
   // факт, опровергающий поле профиля, — первым при любой теме: иначе по лимиту пропадёт и ⚠️ у поля
-  const rank = (i: ContextItem) => (i.contradicts ? -1 : PRIORITY[i.category]);
+  // дальние планы — после всех ближних: по лимиту уходят первыми
+  const far = contextWindow(now).plannedTo;
+  const rank = (i: ContextItem) => (i.contradicts ? -1 : PRIORITY[i.category] + (longTerm(i, far) ? 10 : 0));
   for (const item of ok.sort((a, b) => rank(a) - rank(b) || b.published.localeCompare(a.published))) {
     const key = `${item.url}|${normalize(item.quote)}`;
     const reject = (reason: string) => rejected.push({ url: item.url, summaryRu: item.summaryRu, reason });
@@ -488,7 +502,7 @@ export async function verifyDraft(
   return {
     bsn: school.bsn,
     checkedAt: now.toISOString(),
-    window: { publishedFrom: w.publishedFrom, plannedTo: w.plannedTo },
+    window: { publishedFrom: w.publishedFrom, plannedTo: w.plannedTo, constructionTo: w.constructionTo },
     queries: draft.queries,
     items: items.sort((a, b) => b.published.localeCompare(a.published)), // в отчёте — от новых к старым
     rejected,

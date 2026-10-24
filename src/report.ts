@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { config } from './config.js';
-import { CATEGORIES, type Category, type Context, type PlzContext } from './context.js';
+import { CATEGORIES, longTerm, type Category, type Context, type PlzContext } from './context.js';
 import { fehlGrades, KEY_FIGURES, keyFigure, PAGES, type PageKey } from './extract.js';
 import { formatAddress, type Candidate, type Catchment, type ExcludedByOrtsteil, type School, type ZoneShare } from './geo.js';
 import type { SchoolData, YearPage } from './portrait.js';
@@ -203,21 +203,33 @@ const MEANING: Record<Category, string> = {
     'Hort — продлёнка после уроков. Если у неё нет своих комнат, дети остаются в тех же классах, где учились утром, а мест в продлёнке может быть меньше, чем желающих.',
 };
 
-/** Строки фактов и пояснение по их темам; цитаты — только в context.json. */
+/** Строки фактов и пояснение по их темам; цитаты — только в context.json. Дальние планы стройки — короткой строкой в конце. */
 function factsList(ctx: Context): string {
-  return `<ul>${ctx.items
-    .map(
-      (i) => `<li><b>${esc(i.published)}</b> · ${esc(CATEGORIES[i.category])}: ${esc(i.summaryRu)}${i.planned ? ` <small>(план: ${esc(i.planned)})</small>` : ''}
-          <small>${esc(SOURCE[i.source])}${link(i.url, i.host)}</small></li>`,
-    )
-    .join('')}</ul>
-    <details><summary>💡 Что это обычно значит</summary>${[...new Set(ctx.items.map((i) => i.category))]
+  const near = ctx.items.filter((i) => !longTerm(i, ctx.window.plannedTo));
+  const far = ctx.items.filter((i) => longTerm(i, ctx.window.plannedTo));
+  const source = (i: Context['items'][number]) => `<small>${esc(SOURCE[i.source])}${link(i.url, i.host)}</small>`;
+  return `${
+    near.length
+      ? `<ul>${near
+          .map(
+            (i) => `<li><b>${esc(i.published)}</b> · ${esc(CATEGORIES[i.category])}: ${esc(i.summaryRu)}${i.planned ? ` <small>(план: ${esc(i.planned)})</small>` : ''}
+          ${source(i)}</li>`,
+          )
+          .join('')}</ul>
+    <details><summary>💡 Что это обычно значит</summary>${[...new Set(near.map((i) => i.category))]
       .map((c) => `<p><b>${esc(CATEGORIES[c])}.</b> ${esc(MEANING[c])}</p>`)
-      .join('')}</details>`;
+      .join('')}</details>`
+      : ''
+  }${
+    far.length
+      ? `<p class="far-plans"><b>🗓 Дальние планы</b> — стройка начнётся позже ${esc(ctx.window.plannedTo)}, может прийтись на годы учёбы:</p>
+    <ul>${far.map((i) => `<li><b>${esc(i.planned!)}</b> · ${esc(i.summaryRu)} ${source(i)}</li>`).join('')}</ul>`
+      : ''
+  }`;
 }
 
 const checkedNote = (ctx: Context) =>
-  `<p class="note">Проверено ${esc(ctx.checkedAt.slice(0, 10))}: публикации с ${esc(ctx.window.publishedFrom)} и планы до ${esc(ctx.window.plannedTo)}, только официальные источники, каждый факт сверен с документом.</p>`;
+  `<p class="note">Проверено ${esc(ctx.checkedAt.slice(0, 10))}: публикации с ${esc(ctx.window.publishedFrom)} и планы до ${esc(ctx.window.plannedTo)}${ctx.window.constructionTo ? ` (стройка — до ${esc(ctx.window.constructionTo)})` : ''}, только официальные источники, каждый факт сверен с документом.</p>`;
 
 /** Раздел фактов о закреплённой школе в отчёте по адресу. */
 function contextBlock(ctx: Context | null, school?: string): string {

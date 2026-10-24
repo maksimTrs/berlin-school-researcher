@@ -241,6 +241,15 @@ describe('checks', () => {
     expect(outOfWindow({ published: '2024-06', planned: '2027-01' }, NOW)).toMatch(/старше 12/);
     expect(outOfWindow({ published: '2026-11', planned: null }, NOW)).toBe('дата публикации в будущем');
   });
+
+  it('outOfWindow: construction plans reach 72 months ahead (primary school years), other topics — 6', () => {
+    // pardok 19/22045 (2025-03): санация Sternberg-GS 2029–2032
+    expect(outOfWindow({ published: '2025-03-21', planned: '2029', category: 'construction' }, NOW)).toBeNull();
+    expect(outOfWindow({ published: '2025-03-21', planned: '2029', category: 'capacity' }, NOW)).toMatch(/на ближайшие 6 мес/);
+    expect(outOfWindow({ published: '2025-03-21', planned: '2033', category: 'construction' }, NOW)).toMatch(/на ближайшие 72 мес/);
+    // сам документ — всё равно не старше plannedMaxAgeMonths
+    expect(outOfWindow({ published: '2024-06', planned: '2029', category: 'construction' }, NOW)).toMatch(/старше 12/);
+  });
 });
 
 describe('verifyDraft', () => {
@@ -298,7 +307,7 @@ describe('verifyDraft', () => {
       'www.entwicklungsstadt.de/richtfest-an-der-melli-beese-schule/: не в списке официальных источников (config.context)',
       'источник не загрузился: getaddrinfo ENOTFOUND',
     ]);
-    expect(ctx.window).toEqual({ publishedFrom: '2025-10', plannedTo: '2027-04' });
+    expect(ctx.window).toEqual({ publishedFrom: '2025-10', plannedTo: '2027-04', constructionTo: '2032-10' });
   });
 
   it('mirror copy of an official answer; quote about another school is rejected', async () => {
@@ -634,6 +643,12 @@ describe('report', () => {
     expect(html).toContain('копия документа ведомства · ');
     expect(html).toContain('Проверено 2026-10-23: публикации с 2025-10 и планы до 2027-04');
     expect(renderReport(result, { ...ctx, items: [{ ...ctx.items[0], planned: '2027' }] })).toContain('(план: 2027)');
+    // стройка позже окна — короткой строкой «Дальние планы» после ближних фактов, без пояснения темы
+    const far = { ...ctx.items[0], category: 'construction' as const, planned: '2029', contradicts: null, summaryRu: 'Санация и перестройка в 2029–2032 годах' };
+    const withFar = renderReport(result, { ...ctx, items: [ctx.items[0], far] });
+    expect(withFar).toMatch(/Новеньких без немецкого[\s\S]*🗓 Дальние планы<\/b> — стройка начнётся позже 2027-04[\s\S]*<b>2029<\/b> · Санация и перестройка в 2029–2032 годах/);
+    expect(withFar).not.toContain('<b>Стройка и ремонт.</b>');
+    expect(renderReport(result, { ...ctx, items: [far] })).not.toContain('💡 Что это обычно значит');
   });
 
   it('checked, nothing found — one line, not a missing block', async () => {

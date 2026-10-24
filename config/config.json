@@ -11,6 +11,7 @@
   "context": {
     "pastMonths": 12,
     "futureMonths": 6,
+    "constructionFutureMonths": 72,
     "plannedMaxAgeMonths": 24,
     "maxItems": 5,
     "plzMaxItemsPerSchool": 3,
