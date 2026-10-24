@@ -1,4 +1,4 @@
-// Живые сервисы gdi.berlin.de, эталонные адреса S1–S5 и PLZ S6–S7 (значения сняты 23.10.2026). Портрет школы проверяет `npm run canary`.
+// Живые сервисы gdi.berlin.de, эталонные адреса S1–S5, PLZ и район S6–S8 (значения сняты 23.10.2026). Портрет школы проверяет `npm run canary`.
 import type { APIRequestContext } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { newApi } from '../src/config.js';

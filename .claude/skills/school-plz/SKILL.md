@@ -17,7 +17,7 @@ argument-hint: <PLZ> | <Ortsteil> | <Straße, PLZ> | <Straße, Ortsteil>
 - `12357 Berlin, Rudow (Neukölln)` — PLZ и район вместе → `--plz 12357 --ortsteil Rudow` (только дома PLZ в этом районе); `not_found` — повтори с одним `--plz` и скажи об этом;
 - кириллица — восстанови немецкое написание улицы и района.
 
-Округ (Bezirk: `Tempelhof-Schöneberg`, `Charlottenburg-Wilmersdorf`) — не район: спроси, какие районы в нём смотреть, или предложи их сам. Ortsteil в скобках у ImmoScout — старый округ («Halensee (Wilmersdorf)») — бери первое название.
+Округ (Bezirk: `Tempelhof-Schöneberg`, `Charlottenburg-Wilmersdorf`) — не район, `--ortsteil` его не найдёт: перечисли районы округа и спроси, какие смотреть; на каждый район — отдельный `npm run plz -- --ortsteil …` и отдельный artifact. `Wilmersdorf`, `Schöneberg`, `Tempelhof` без дефиса — районы, их запускай сразу. Ortsteil в скобках у ImmoScout — старый округ («Halensee (Wilmersdorf)») — бери первое название.
 Цену, комнаты и прочий шум объявления отбрось. PLZ и район не выдумывай: нет ни того, ни другого — спроси. Есть номер дома — это задача `/school`, предложи её.
 
 ## 2. Отчёт

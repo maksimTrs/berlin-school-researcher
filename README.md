@@ -150,7 +150,7 @@ flowchart TD
 |---|---|
 | `src/cli.ts` | команды `resolve`, `lookup`, `plz`, `context`, `canary`, `preflight`, `startchancen`; сбой одного адреса не останавливает остальные |
 | `src/preflight.ts` | проверка критичных источников до запуска браузера |
-| `src/geo.ts` | WFS: адрес, зона, выбор школы, соседи |
+| `src/geo.ts` | WFS: адрес, зона, выбор школы, соседи; PLZ/район → зоны (`plzZones`), сверка `esbOverrides` (`checkOverrides`) |
 | `src/portrait.ts` | браузер, поиск школы по номеру, загрузка подстраниц, скриншоты |
 | `src/extract.ts` | список подстраниц (`PAGES`) и ключевых цифр (`KEY_FIGURES`) — новая метрика = новая строка |
 | `src/score.ts` | маркер 🟢🟡🔴 за 3 года: отмены уроков хуже средней по типу школ, дефицит учительских часов — в начале отчёта и в итоге в чат |
@@ -160,6 +160,7 @@ flowchart TD
 | `src/report.ts` | HTML-отчёт |
 | `config/config.json` | слой зон, число лет, соседей, адресов, адрес для canary, поправки зон `esbOverrides` (коды зон — слоя `esbLayer`: при смене слоя сверить заново) |
 | `.claude/skills/school/SKILL.md` | что делает Claude по `/school` |
+| `.claude/skills/school-plz/SKILL.md` | что делает Claude по `/school-plz` |
 
 ## Команды
 
