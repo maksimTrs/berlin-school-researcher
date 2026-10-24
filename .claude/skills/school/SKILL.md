@@ -85,8 +85,9 @@ argument-hint: <адрес>[; <адрес> ...]
 **Поиск** — WebSearch `standard`, 3–4 запроса: имя школы без «(Grundschule)» и BSN вместе с
 `Erweiterung`, `Container`, `Raummangel`, `Willkommensklasse`, `Schulleitung`, `Einschulungsbereich`, `Sanierung`, `Hort`.
 Где искать: пресс-релизы Bezirksamt (`berlin.de/ba-<bezirk>/aktuelles/pressemitteilungen`), страницы Schul- und Sportamt,
-ответы на запросы в Abgeordnetenhaus (`pardok.parlament-berlin.de`) и в BVV округа. СМИ и блоги — только как подсказка,
-где искать первоисточник; в черновик идёт сам документ ведомства.
+ответы на запросы в Abgeordnetenhaus (`pardok.parlament-berlin.de`) и в BVV округа, рассылки Bezirksamt по районам (`…/newsletter-<район>/`). СМИ и блоги — только как подсказка,
+где искать первоисточник; в черновик идёт сам документ ведомства. berlin.de отвечает `429` на частые запросы — `curl --retry 6 --retry-delay 4`.
+Если фактов больше лимита, код оставляет важные темы: `capacity` → `catchment` → `construction` → `afterschool` → `leadership` → `welcome_classes`.
 
 **Что брать** — только факт о самой школе, который меняет картину для семьи:
 
@@ -145,7 +146,7 @@ argument-hint: <адрес>[; <адрес> ...]
 ## 5. Итог в чат
 
 На каждый адрес — несколько строк из сводки lookup:
-- `school` и `bsn`; `catchmentStatus`: `exact` / `override` — без пометок, остальное — ⚠️, `candidates` и «уточнить в Schulamt района»;
+- `school` и `bsn`; `catchmentStatus`: `exact` / `override` — без пометок; `joint` — «общая зона нескольких школ: закреплены все» и `candidates`; остальное — ⚠️, `candidates` и «уточнить в Schulamt района»;
 - `verdict` — как есть, без пересказа и своих оценок;
 - `startchancen: true` — строка «🔶 В программе Startchancen: больше учеников из социально неблагополучных семей, дополнительные деньги и персонал (что это значит — в отчёте)»; `false` — «ℹ️ Не в программе Startchancen»;
 - ⚠️ `alternatives` адреса, если есть;
@@ -154,5 +155,7 @@ argument-hint: <адрес>[; <адрес> ...]
 - 💭 если есть `items` — 2–4 строки «Как это складывается с цифрами»: связь фактов с маркером и ключевыми цифрами из `result.json`,
   с пометкой, что это вывод Claude, а не данные. Только связи между тем, что уже есть в `result.json` и `context.json`, без новых фактов и чисел; маркер не пересматривай;
 - ссылка на artifact.
+
+Вопрос про переезд посреди учебного года — по `config/zuzug.json` (сверенные цитаты SenBJF, тот же блок есть в отчёте) и ссылкам оттуда, своих правил не добавляй.
 
 Дальнейшие вопросы по отчёту отвечай по `result.json` того же адреса. Цифры — только оттуда; нет значения — «н/д — нет данных на сайте за <год>». Ничего не досчитывай и не оценивай сам: маркер 🟢🟡🔴 ставит код (`src/score.ts`).

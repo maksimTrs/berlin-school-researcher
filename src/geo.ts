@@ -4,7 +4,7 @@ import type { AddressQuery, PlzQuery } from './schema.js';
 
 const WFS = 'https://gdi.berlin.de/services/wfs/';
 
-type Geometry = { type: string; coordinates: any };
+export type Geometry = { type: string; coordinates: any };
 export type Feature = { id: string; geometry: Geometry; properties: Record<string, any> };
 
 async function getFeatures(
@@ -186,7 +186,7 @@ export function nearest(schools: School[], from: { lon: number; lat: number }, n
 
 // ---------- зона → школа ----------
 
-export type CatchmentStatus = 'exact' | 'override' | 'matched_by_code' | 'ambiguous' | 'no_school_in_zone' | 'no_zone';
+export type CatchmentStatus = 'exact' | 'override' | 'joint' | 'matched_by_code' | 'ambiguous' | 'no_school_in_zone' | 'no_zone';
 
 export type Catchment = {
   esb: string | null;
@@ -211,16 +211,22 @@ function inRing([x, y]: [number, number], ring: number[][]): boolean {
   return inside;
 }
 
-/** Зона → школа: поправка > одна школа в зоне > совпадение кода зоны с bsn > все кандидаты; пустая зона → 3 ближайшие. */
+/**
+ * Зона → школа: поправка > одна школа в зоне > совпадение кода зоны с bsn > все кандидаты; пустая зона → 3 ближайшие.
+ * Поправка списком — общая зона нескольких школ (gemeinsamer ESB в справочнике округа): закреплены все, ближайшая первой.
+ */
 export function assignSchool(
   esb: string,
   inside: School[],
   all: School[],
   from: { lon: number; lat: number },
-  overrides: Record<string, string>,
+  overrides: Record<string, string | string[]>,
 ): Pick<Catchment, 'status' | 'schools'> {
-  const overridden = all.find((s) => s.bsn === overrides[esb]);
-  if (overridden) return { status: 'override', schools: nearest([overridden], from, 1) };
+  const listed = [overrides[esb] ?? []].flat();
+  const overridden = all.filter((s) => listed.includes(s.bsn));
+  // школа поправки пропала из реестра — поправка устарела, решают пространственные правила
+  if (listed.length && overridden.length === listed.length)
+    return { status: listed.length > 1 ? 'joint' : 'override', schools: nearest(overridden, from, overridden.length) };
   const sorted = nearest(inside, from, inside.length);
   if (sorted.length === 1) return { status: 'exact', schools: sorted };
   if (sorted.length > 1) {
@@ -259,10 +265,31 @@ export async function neighbors(api: APIRequestContext, addr: Candidate, exclude
 
 // ---------- PLZ → зоны ----------
 
-export type PlzAddress = { street: string; house: number; suffix: string | null; lon: number; lat: number };
+export type PlzAddress = { street: string; house: number; suffix: string | null; plz?: string; lon: number; lat: number };
 
-/** Зона внутри PLZ: школа по тем же правилам, что для адреса, и дома индекса, которые в неё попали. */
-export type ZoneShare = Catchment & { addresses: number; streets: { street: string; houses: string[] }[] };
+/**
+ * Зона внутри PLZ или района: школа по тем же правилам, что для адреса, дома запроса, которые в неё попали,
+ * и сколько из них в каждом PLZ — объявление называет PLZ, а район делят несколько индексов.
+ */
+export type ZoneShare = Catchment & {
+  addresses: number;
+  plzs: { plz: string; addresses: number }[];
+  streets: { street: string; houses: string[] }[];
+  // для карты в отчёте; в result.json до карты их нет
+  geometry?: Geometry; // граница зоны, координаты округлены до ~10 м
+  points?: [number, number][]; // дома запроса в этой зоне, [lon, lat]
+};
+
+const round = (x: number, digits: number) => Math.round(x * 10 ** digits) / 10 ** digits;
+
+/** Граница для карты: координаты до 4 знаков (~10 м), подряд совпавшие точки — одна. */
+export function compactGeometry(g: Geometry): Geometry {
+  const ring = (r: number[][]) =>
+    r.map(([x, y]) => [round(x, 4), round(y, 4)]).filter((p, i, a) => i === 0 || p[0] !== a[i - 1][0] || p[1] !== a[i - 1][1]);
+  if (g.type === 'Polygon') return { type: g.type, coordinates: g.coordinates.map(ring) };
+  if (g.type === 'MultiPolygon') return { type: g.type, coordinates: g.coordinates.map((p: number[][][]) => p.map(ring)) };
+  return g;
+}
 
 /** Адреса → зоны, в которые они попадают, от большей группы к меньшей. Адрес вне всех зон не попадает никуда. */
 export function groupByZone(addrs: PlzAddress[], zones: Feature[]): { zone: Feature; addrs: PlzAddress[] }[] {
@@ -284,21 +311,37 @@ export function streetsOf(addrs: PlzAddress[]): ZoneShare['streets'] {
   return [...byStreet].map(([street, houses]) => ({ street, houses }));
 }
 
+/** Число адресов по PLZ, от большего к меньшему. */
+export function plzsOf(addrs: PlzAddress[]): ZoneShare['plzs'] {
+  const n = new Map<string, number>();
+  for (const a of addrs) if (a.plz) n.set(a.plz, (n.get(a.plz) ?? 0) + 1);
+  return [...n].map(([plz, addresses]) => ({ plz, addresses })).sort((a, b) => b.addresses - a.addresses || a.plz.localeCompare(b.plz));
+}
+
 const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
 
-/** Все адреса PLZ (или одной улицы в нём) → зоны Einschulbereich, в которые они попадают, и школа каждой зоны. */
+/** «Schöneberg», «Schoeneberg», «schöneberg» → один и тот же район: ILIKE-шаблон, точное совпадение — после свёртки. */
+const ortsteilPattern = (o: string) => fold(o).replace(/[%_]/g, '').replace(/ss|ae|oe|ue/g, '%');
+
+/** Все адреса PLZ и/или района (или одной улицы в них) → зоны Einschulbereich, в которые они попадают, и школа каждой зоны. */
 export async function plzZones(api: APIRequestContext, q: PlzQuery): Promise<{ total: number; zones: ZoneShare[] }> {
-  const conds = [`plz=${cqlString(q.plz)}`];
+  const conds: string[] = [];
+  if (q.plz) conds.push(`plz=${cqlString(q.plz)}`);
+  if (q.ortsteil) conds.push(`ort_name ILIKE ${cqlString(ortsteilPattern(q.ortsteil))}`);
   if (q.street) conds.push(`str_name ILIKE ${cqlString(streetPattern(q.street))}`);
-  let addrs: PlzAddress[] = (await getFeatures(api, 'adressen_berlin', 'adressen_berlin', conds.join(' AND '), 'EPSG:4326')).map(
-    (f) => ({
-      street: f.properties.str_name,
-      house: f.properties.hnr,
-      suffix: f.properties.hnr_zusatz ?? null,
-      lon: f.geometry.coordinates[0],
-      lat: f.geometry.coordinates[1],
-    }),
-  );
+  let addrs: (PlzAddress & { ortsteil: string })[] = (
+    await getFeatures(api, 'adressen_berlin', 'adressen_berlin', conds.join(' AND '), 'EPSG:4326')
+  ).map((f) => ({
+    street: f.properties.str_name,
+    house: f.properties.hnr,
+    suffix: f.properties.hnr_zusatz ?? null,
+    plz: f.properties.plz,
+    ortsteil: f.properties.ort_name ?? '',
+    lon: f.geometry.coordinates[0],
+    lat: f.geometry.coordinates[1],
+  }));
+  // шаблон с «%» вместо ss/ae/oe/ue шире имени — оставляем только точное совпадение после свёртки
+  if (q.ortsteil) addrs = addrs.filter((a) => fold(a.ortsteil) === fold(q.ortsteil!));
   if (q.street) {
     // ILIKE по префиксу ловит и «Am Waldidyll» для «Am Wald»: чужую улицу не выдаём за запрошенную — лучше not_found
     const street = normStreet(q.street);
@@ -326,7 +369,10 @@ export async function plzZones(api: APIRequestContext, q: PlzQuery): Promise<{ t
         config.esbOverrides,
       ),
       addresses: addrs.length,
+      plzs: plzsOf(addrs),
       streets: streetsOf(addrs),
+      geometry: compactGeometry(zone.geometry),
+      points: addrs.map((a): [number, number] => [round(a.lon, 5), round(a.lat, 5)]),
     })),
   };
 }

@@ -20,6 +20,7 @@ import {
 import { Input, parseAddress, PlzQuery, type AddressQuery } from './schema.js';
 import { scoreProblems, scoreSchool, verdict } from './score.js';
 import { diffSchools, fetchStartchancen, saveSnapshot, startchancen } from './startchancen.js';
+import { verifyZuzug, zuzug } from './zuzug.js';
 
 const { positionals, values: args } = parseArgs({
   allowPositionals: true,
@@ -27,6 +28,7 @@ const { positionals, values: args } = parseArgs({
     input: { type: 'string' },
     address: { type: 'string' },
     plz: { type: 'string' },
+    ortsteil: { type: 'string' },
     street: { type: 'string' },
     dir: { type: 'string' },
     out: { type: 'string', default: 'out' },
@@ -233,7 +235,7 @@ async function lookupCmd() {
   if (out.some((s) => s.status === 'error')) process.exitCode = 1;
 }
 
-/** Все зоны PLZ (или улицы в нём) → школа каждой зоны с маркером за 3 года, без скриншотов. */
+/** Все зоны PLZ и/или района (или улицы в них) → школа каждой зоны с маркером за 3 года, без скриншотов. */
 async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | null }> {
   const api = await newApi();
   try {
@@ -242,7 +244,9 @@ async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | n
     if (!total) {
       return { result: { ...base, status: 'not_found', addresses: 0, zones: [], schools: [], warnings: [] }, dir: null };
     }
-    const dir = resolve(args.out!, slugify(`plz ${q.plz} ${q.street ?? ''}`));
+    // plz-10439, plz-10439-schivelbeiner-strasse, ortsteil-friedenau, ortsteil-friedenau-12161
+    const slug = q.ortsteil ? `ortsteil ${q.ortsteil} ${q.plz ?? ''}` : `plz ${q.plz}`;
+    const dir = resolve(args.out!, slugify(`${slug} ${q.street ?? ''}`));
     mkdirSync(dir, { recursive: true });
     // одна школа бывает в нескольких зонах (ближайшая к двум зонам без своей школы) — собираем её один раз
     const unique = [...new Map(zones.flatMap((z) => z.schools).map((s): [string, School] => [s.bsn, s])).values()];
@@ -285,6 +289,8 @@ function summarizePlz({ result: r, dir }: { result: PlzResult; dir: string | nul
       esb: z.esb,
       addresses: z.addresses,
       share: share(z.addresses, r.addresses),
+      // по району — в каких PLZ дома зоны: объявление называет PLZ
+      plzs: z.plzs.map((p) => `${p.plz}: ${p.addresses}`).join(', '),
       catchmentStatus: z.status,
       schools: z.schools.map((s) => {
         const d = data.get(s.bsn);
@@ -304,7 +310,7 @@ function summarizePlz({ result: r, dir }: { result: PlzResult; dir: string | nul
 }
 
 async function plzCmd() {
-  const q = PlzQuery.parse({ plz: args.plz, street: args.street ?? null });
+  const q = PlzQuery.parse({ plz: args.plz ?? null, ortsteil: args.ortsteil ?? null, street: args.street ?? null });
   if (!(await sitesAvailable())) return;
   try {
     console.log(JSON.stringify(summarizePlz(await plzOne(q)), null, 2));
@@ -316,7 +322,7 @@ async function plzCmd() {
 
 /**
  * Ежемесячная проверка: эталонный адрес проходит весь путь, ключевые подстраницы текущего года отдают данные,
- * входы маркера — за каждый год тренда.
+ * входы маркера — за каждый год тренда; снимки Startchancen и правил переезда совпадают с сайтом.
  */
 async function canaryCmd() {
   if (!(await sitesAvailable())) return;
@@ -352,6 +358,12 @@ async function canaryCmd() {
     }
   } catch (e) {
     problems.push(`Startchancen: ${firstLine(e)} — снимок config/startchancen.json не сверен`);
+  }
+  try {
+    // правила переезда посреди года: цитаты снимка ещё дословно в документах SenBJF
+    for (const p of await verifyZuzug(zuzug(), fetchFollowing(api))) problems.push(`Переезд (config/zuzug.json): ${p} — найди новую формулировку и обнови снимок`);
+  } catch (e) {
+    problems.push(`Переезд: ${firstLine(e)} — снимок config/zuzug.json не сверен`);
   } finally {
     await api.dispose();
   }
@@ -390,7 +402,7 @@ const commands: Record<string, () => Promise<void>> = {
 const cmd = commands[positionals[0]];
 if (!cmd) {
   console.error(
-    'Использование: tsx src/cli.ts resolve|lookup|plz|context|canary|preflight|startchancen [--input f.json | --address "..." | --plz 10439 [--street "..."] | --dir out/<адрес>] [--headed --slowmo N --trace]',
+    'Использование: tsx src/cli.ts resolve|lookup|plz|context|canary|preflight|startchancen [--input f.json | --address "..." | --plz 10439 | --ortsteil Friedenau [--street "..."] | --dir out/<адрес>] [--headed --slowmo N --trace]',
   );
   process.exit(2);
 }

@@ -6,6 +6,7 @@ import type { SchoolData, YearPage } from './portrait.js';
 import type { AddressQuery, PlzQuery } from './schema.js';
 import { EMOJI, scoreSchool, verdict } from './score.js';
 import { startchancen } from './startchancen.js';
+import { zuzug } from './zuzug.js';
 
 export type SchoolEntry = { school: School; role: 'main' | 'candidate' | 'neighbor'; data: SchoolData };
 
@@ -44,6 +45,7 @@ export const noData = (year: string) => `н/д — нет данных на са
 const STATUS_TEXT: Record<Catchment['status'], { text: string; warn: boolean }> = {
   exact: { text: 'Школа найдена: единственная школа в зоне', warn: false },
   override: { text: 'Школа задана вручную (esbOverrides)', warn: false },
+  joint: { text: 'Общая зона нескольких школ (gemeinsamer ESB по справочнику округа): закреплены все; в какую возьмут — решают школы и Schulamt', warn: true },
   matched_by_code: { text: 'В зоне несколько школ, выбрана по совпадению кода зоны и номера школы', warn: true },
   ambiguous: { text: 'В зоне несколько школ — закреплённую уточнить в Schulamt района', warn: true },
   no_school_in_zone: { text: 'Внутри зоны нет школы — показаны ближайшие, уточнить в Schulamt района', warn: true },
@@ -54,6 +56,7 @@ const STATUS_TEXT: Record<Catchment['status'], { text: string; warn: boolean }> 
 const MAIN_TITLE: Record<Catchment['status'], string> = {
   exact: 'Закреплённая школа',
   override: 'Закреплённая школа',
+  joint: 'Одна из закреплённых школ общей зоны',
   matched_by_code: 'Вероятно закреплённая школа',
   ambiguous: 'Ближайшая из школ зоны — закреплённая не определена',
   no_school_in_zone: 'Ближайшая школа — закреплённая не определена',
@@ -154,6 +157,16 @@ function startchancenNote(s: School): string {
   </div>`;
 }
 
+/** Переезд в Берлин посреди учебного года — цитаты SenBJF из снимка config/zuzug.json, свёрнуто: нужно не всем. */
+function zuzugBlock(): string {
+  const z = zuzug();
+  return `<details class="zuzug"><summary>🧳 Переезд в Берлин посреди учебного года — как дают место в школе</summary>
+    <ul>${z.items.map((i) => `<li>${esc(i.summaryRu)} <small>${link(i.url, new URL(i.url).pathname.endsWith('.pdf') ? 'PDF SenBJF' : 'berlin.de')}</small></li>`).join('')}</ul>
+    <p>${z.links.map((l) => link(l.url, l.label)).join('<br>')}</p>
+    <p class="note">Цитаты сверены с документами ${esc(z.checkedAt)}; общие правила Берлина, не решение по конкретной школе.</p>
+  </details>`;
+}
+
 const SOURCE: Record<Context['items'][number]['source'], string> = { official: '', mirror: 'копия документа ведомства · ' };
 
 // что такой факт обычно значит для ребёнка — общий текст на тему, а не вывод о конкретной школе
@@ -163,7 +176,7 @@ const MEANING: Record<Category, string> = {
   construction:
     'Стройка идёт годами: шум, временные модули, закрытая часть двора. После неё — больше комнат и новое оснащение. Важно, какой этап придётся на годы ребёнка в школе.',
   welcome_classes:
-    'Willkommensklasse — отдельная группа для детей без немецкого до перехода в обычный класс. Если в школе её нет, ребёнка берут в обычный класс с дополнительными уроками немецкого (DaZ) или направляют в школу, где группа есть; решает Schulamt района.',
+    'Willkommensklasse — отдельная группа для детей без немецкого до перехода в обычный класс. Детей до 7 лет (1–2 класс) по правилам SenBJF обычно берут сразу в обычный класс с обязательными доп. уроками немецкого, группа для них — исключение. С 3 класса — Willkommensklasse или обычный класс; школу назначает Schulamt района.',
   catchment:
     'Меняются границы школьной зоны: адрес может отойти к другой школе. Действует зона того года, когда ребёнок поступает, — проверьте её заново перед подачей документов.',
   leadership:
@@ -242,7 +255,7 @@ export function renderReport(r: AddressResult, ctx: Context | null = null): stri
           .map(
             (o) => `<tr>
               <th scope="row">${esc(o.school.name)} <small>${esc(o.school.bsn)}${inStartchancen(o.school) ? ' · 🔶 Startchancen' : ''}</small><br><small>${schoolLinks(o.school, o.data, addr, false)}</small></th>
-              <td>${ROLE[o.role]}</td><td>${o.school.distanceM ?? '—'} м</td>
+              <td>${c.status === 'joint' && o.role === 'candidate' ? 'закреплённая (общая зона)' : ROLE[o.role]}</td><td>${o.school.distanceM ?? '—'} м</td>
               ${KEY_FIGURES.map((k) => `<td>${figure(o.data, k)}</td>`).join('')}
             </tr>`,
           )
@@ -285,6 +298,8 @@ ${
 
 ${contextBlock(mainCtx)}
 
+${zuzugBlock()}
+
 <section>
   <h2>Профиль и контакты школы</h2>
   <dl>${main.data.profile.fields.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${profileValue(k, v, mainCtx)}</dd>`).join('')}</dl>
@@ -324,16 +339,16 @@ function page(title: string, body: string): string {
 /* Layout: одна колонка-документ, таблицы прокручиваются внутри себя */
 :root {
   --bg: #f8f9f7; --surface: #ffffff; --fg: #1c2321; --muted: #5b6662; --line: #d9dfdc;
-  --accent: #0a6a6a; --warn: #9a4a07; --warn-bg: #fcf1e2;
+  --accent: #0a6a6a; --warn: #9a4a07; --warn-bg: #fcf1e2; --zone-fill: #e8f1f0; --zone-hover: #cfe3e1;
   --display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
   --body: 'Source Sans 3', 'Segoe UI', Roboto, sans-serif;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #121615; --surface: #1a201e; --fg: #e5ebe8; --muted: #9aa6a1; --line: #2c3532;
-  --accent: #5cc6c1; --warn: #f0a560; --warn-bg: #2d2116; color-scheme: dark; } }
+  --accent: #5cc6c1; --warn: #f0a560; --warn-bg: #2d2116; --zone-fill: #1d2a28; --zone-hover: #26403d; color-scheme: dark; } }
 :root[data-theme="dark"] {
   --bg: #121615; --surface: #1a201e; --fg: #e5ebe8; --muted: #9aa6a1; --line: #2c3532;
-  --accent: #5cc6c1; --warn: #f0a560; --warn-bg: #2d2116; color-scheme: dark; }
+  --accent: #5cc6c1; --warn: #f0a560; --warn-bg: #2d2116; --zone-fill: #1d2a28; --zone-hover: #26403d; color-scheme: dark; }
 body { background: var(--bg); color: var(--fg); font: 16px/1.5 var(--body);
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 48px; }
 main { max-width: 1100px; margin: 0 auto; display: grid; gap: 28px; }
@@ -369,6 +384,16 @@ details img { display: block; margin-top: 8px; max-width: 100%; height: auto; }
 .context ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
 .context p { margin: 0; }
 .context details p { margin: 6px 0 0; }
+.zone-map { margin: 0; display: grid; gap: 6px; }
+.zone-map svg { display: block; width: 100%; min-width: 640px; height: auto; max-height: 80vh; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.zone-map .zone { fill: var(--zone-fill); stroke: var(--accent); stroke-width: 2; fill-rule: evenodd; }
+.zone-map .zone:hover { fill: var(--zone-hover); }
+.zone-map .dots circle { fill: var(--muted); opacity: .55; pointer-events: none; }
+.zone-map .school circle { fill: var(--fg); stroke: var(--surface); stroke-width: 2; }
+.zone-map text { font: 600 14px var(--body); fill: var(--fg); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.zone-map .label { font: 700 20px var(--display); text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+.zuzug ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; }
+.zuzug p { margin: 8px 0 0; }
 @media (max-width: 560px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } }
 </style>
 ${body}`;
@@ -389,9 +414,79 @@ export type PlzResult = {
   warnings: string[]; // школы, чей Schulporträt не загрузился
 };
 
-export const share = (n: number, total: number) => `${Math.round((100 * n) / total)} %`;
+// 1 дом из 775 — не «0 %», а 429 из 430 — не «100 %»: рядом есть другая зона, пусть и маленькая
+export const share = (n: number, total: number) => {
+  const pct = Math.round((100 * n) / total);
+  return n > 0 && pct === 0 ? '<1 %' : n < total && pct === 100 ? '>99 %' : `${pct} %`;
+};
 
-export const plzTitle = (q: PlzQuery) => (q.street ? `${q.street}, ${q.plz}` : `PLZ ${q.plz}`);
+/** «PLZ 10439», «Schivelbeiner Straße, 10439», «Friedenau», «Friedenau, PLZ 12161», «Handjerystraße, Friedenau». */
+export const plzTitle = (q: PlzQuery) => {
+  const area = q.ortsteil ? [q.ortsteil, q.plz && `PLZ ${q.plz}`] : [q.street ? q.plz : `PLZ ${q.plz}`];
+  return [q.street, ...area].filter(Boolean).join(', ');
+};
+
+// ---------- карта зон ----------
+
+const MAP_W = 1000;
+
+/**
+ * Карта зон запроса: границы зон, дома запроса точками, школы маркерами. Зон бывает до десятка — цветом их
+ * не различить (на карте надёжно различимы только 3 оттенка), поэтому зона подписана номером прямо на карте,
+ * заливка нейтральная. Подсказка при наведении — <title>. Табличный вид — таблица зон выше.
+ */
+export function zoneMap(zones: ZoneShare[]): string {
+  const withPoints = zones.filter((z) => z.points?.length && z.geometry);
+  if (!withPoints.length) return ''; // result.json до карты
+  const schools = [...new Map(zones.flatMap((z) => z.schools).map((s): [string, School] => [s.bsn, s])).values()];
+  const pts = [...withPoints.flatMap((z) => z.points!), ...schools.map((s): [number, number] => [s.lon, s.lat])];
+  const lons = pts.map((p) => p[0]);
+  const lats = pts.map((p) => p[1]);
+  const [lon0, lon1, lat0, lat1] = [Math.min(...lons), Math.max(...lons), Math.min(...lats), Math.max(...lats)];
+  const kx = Math.cos(((lat0 + lat1) / 2) * (Math.PI / 180)); // градус долготы короче градуса широты
+  const pad = 0.08;
+  const spanX = Math.max((lon1 - lon0) * kx, 0.002) * (1 + 2 * pad);
+  const spanY = Math.max(lat1 - lat0, 0.002) * (1 + 2 * pad);
+  const scale = MAP_W / spanX;
+  const h = Math.round(Math.min(spanY * scale, MAP_W * 1.2));
+  const cx = (lon0 + lon1) / 2;
+  const cy = (lat0 + lat1) / 2;
+  const x = (lon: number) => (MAP_W / 2 + (lon - cx) * kx * scale).toFixed(1);
+  const y = (lat: number) => (h / 2 - (lat - cy) * scale).toFixed(1);
+  const ring = (r: number[][]) => `M${r.map(([lon, lat]) => `${x(lon)},${y(lat)}`).join('L')}Z`;
+  const path = (g: NonNullable<ZoneShare['geometry']>) =>
+    (g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []).flat().map(ring).join('');
+  const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+  const areas = withPoints
+    .map(
+      (z) => `<path class="zone" d="${path(z.geometry!)}"><title>Зона ${esc(z.esb)} · ${z.schools.map((s) => `${esc(s.name)} ${esc(s.bsn)}`).join(' / ')} · адресов: ${z.addresses}</title></path>`,
+    )
+    .join('');
+  const dots = withPoints.flatMap((z) => z.points!.map(([lon, lat]) => `<circle cx="${x(lon)}" cy="${y(lat)}" r="2"/>`)).join('');
+  const marks = schools
+    .map(
+      (s) => `<g class="school"><circle cx="${x(s.lon)}" cy="${y(s.lat)}" r="6"/><text x="${(+x(s.lon) + 9).toFixed(1)}" y="${(+y(s.lat) + 4).toFixed(1)}">${esc(s.bsn)}</text><title>${esc(s.name)} ${esc(s.bsn)}</title></g>`,
+    )
+    .join('');
+  // подпись зоны — в центре её домов запроса, а не всей зоны: зона может уходить далеко за район;
+  // рядом с маркером школы (школа часто в центре своей зоны) — сдвигаем ниже, чтобы не закрывать номер школы
+  const nearSchool = (px: number, py: number) => schools.some((s) => Math.abs(+x(s.lon) - px) < 70 && Math.abs(+y(s.lat) - py) < 24);
+  const labels = withPoints
+    .map((z) => {
+      const px = +x(mean(z.points!.map((p) => p[0])));
+      let py = +y(mean(z.points!.map((p) => p[1])));
+      if (nearSchool(px, py)) py += 30;
+      return `<text class="label" x="${px.toFixed(1)}" y="${py.toFixed(1)}">${esc(z.esb)}</text>`;
+    })
+    .join('');
+  return `<figure class="zone-map">
+    <div class="scroll"><svg viewBox="0 0 ${MAP_W} ${h}" role="img" aria-label="Карта зон Einschulbereich: границы зон, дома запроса и школы">
+      <g class="zones">${areas}</g><g class="dots">${dots}</g><g>${labels}</g>${marks}
+    </svg></div>
+    <figcaption>Границы зон Einschulbereich (номер зоны — на карте), точки — дома запроса, кружки с номером — школы. Наведите на зону или школу — подсказка; на телефоне карта листается вбок.</figcaption>
+  </figure>`;
+}
 
 /** ctx — проверенный context.json по школам PLZ, если его собирали. */
 export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null): string {
@@ -406,6 +501,9 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null): st
     return d ? esc(verdict(scoreSchool(d)).text) : '<span class="nd">Schulporträt не загрузился</span>';
   };
 
+  // запрос по району охватывает несколько PLZ — у зоны пишем, в каких из них её дома
+  const manyPlz = new Set(r.zones.flatMap((z) => (z.plzs ?? []).map((p) => p.plz))).size > 1; // plzs нет в result.json до района
+
   // две колонки без .summary: текст переносится, и маркер виден на телефоне без прокрутки
   const zonesTable = `<table>
     <thead><tr><th>Зона · адресов</th><th>Школа и маркер</th></tr></thead>
@@ -415,14 +513,37 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null): st
         return z.schools
           .map(
             (s, i) => `<tr>
-              ${i === 0 ? `<th scope="row" rowspan="${z.schools.length}">${esc(z.esb)}<br><small>${z.addresses} · ${share(z.addresses, r.addresses)}</small>${st.warn ? `<br><small class="bad">⚠️ ${esc(st.text)}</small>` : ''}</th>` : ''}
-              <td>${z.status === 'matched_by_code' ? `<small>${i === 0 ? 'вероятно закреплённая' : 'кандидат'}</small><br>` : ''}${esc(schoolName(s))} <small>${esc(s.bsn)}${inStartchancen(s) ? ' · 🔶 Startchancen' : ''}</small><br>${marker(s)}</td>
+              ${i === 0 ? `<th scope="row" rowspan="${z.schools.length}">${esc(z.esb)}<br><small>${z.addresses} · ${esc(share(z.addresses, r.addresses))}</small>${manyPlz ? `<br><small>${z.plzs.map((p) => `${esc(p.plz)}: ${p.addresses}`).join(' · ')}</small>` : ''}${st.warn ? `<br><small class="bad">⚠️ ${esc(st.text)}</small>` : ''}</th>` : ''}
+              <td>${z.status === 'matched_by_code' ? `<small>${i === 0 ? 'вероятно закреплённая' : 'кандидат'}</small><br>` : z.status === 'joint' ? '<small>общая зона</small><br>' : ''}${esc(schoolName(s))} <small>${esc(s.bsn)}${inStartchancen(s) ? ' · 🔶 Startchancen' : ''}</small><br>${marker(s)}</td>
             </tr>`,
           )
           .join('');
       })
       .join('')}</tbody>
   </table>`;
+
+  // объявление называет PLZ: по каждому PLZ района — какие зоны и школы в нём, от большей доли к меньшей
+  const byPlz = new Map<string, { z: ZoneShare; n: number }[]>();
+  for (const z of r.zones) for (const p of z.plzs ?? []) (byPlz.get(p.plz) ?? byPlz.set(p.plz, []).get(p.plz)!).push({ z, n: p.addresses });
+  const plzTable = manyPlz
+    ? `<section>
+  <h2>PLZ из объявления → зоны</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>PLZ · адресов</th><th>Зоны и школы</th></tr></thead>
+    <tbody>${[...byPlz]
+      .map(([plz, zs]) => [plz, zs, zs.reduce((n, x) => n + x.n, 0)] as const)
+      .sort((a, b) => b[2] - a[2])
+      .map(
+        ([plz, zs, total]) => `<tr><th scope="row">${esc(plz)}<br><small>${total}</small></th><td>${zs
+          .sort((a, b) => b.n - a.n)
+          .map(({ z, n }) => `${esc(z.esb)} · ${esc(share(n, total))} — ${z.schools.map((s) => `${esc(schoolName(s))} <small>${esc(s.bsn)}</small>`).join(' / ')}`)
+          .join('<br>')}</td></tr>`,
+      )
+      .join('')}</tbody>
+  </table></div>
+  <p class="note">Только дома этого района: часть PLZ может лежать в соседнем районе.</p>
+</section>`
+    : '';
 
   const schoolSections = r.schools
     .map(
@@ -452,10 +573,14 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null): st
     )
     .join('');
 
-  const where = r.input.street ? 'Адреса улицы в этом PLZ' : 'Адреса PLZ';
+  const where = r.input.street
+    ? `Адреса улицы в ${r.input.ortsteil ? 'этом районе' : 'этом PLZ'}`
+    : r.input.ortsteil
+      ? 'Адреса района'
+      : 'Адреса PLZ';
   return page(`Школы — ${plzTitle(r.input)}`, `<main>
 <header style="display:grid;gap:6px">
-  <span class="eyebrow">Поиск по PLZ · слой ${esc(r.esbLayer)} · отчёт от ${esc(r.generatedAt.slice(0, 10))}</span>
+  <span class="eyebrow">Поиск по ${r.input.ortsteil ? 'району' : 'PLZ'} · слой ${esc(r.esbLayer)} · отчёт от ${esc(r.generatedAt.slice(0, 10))}</span>
   <h1>Школы — ${esc(plzTitle(r.input))}</h1>
   <div class="meta">${where} в реестре: <b>${r.addresses}</b> · зон Einschulbereich: <b>${r.zones.length}</b></div>
 </header>
@@ -470,8 +595,13 @@ ${outside ? `<p class="warn">⚠️ Адресов вне всех зон: ${out
 <section>
   <h2>Зоны и школы</h2>
   ${zonesTable}
+  ${zoneMap(r.zones)}
   <p class="note">Доля — от числа адресов (домов) в реестре, не квартир: особняк и дом на 200 квартир считаются одинаково. Это не вероятность, что квартира попадёт в зону. Маркер — за ${years.length} уч. года, как в отчёте по адресу.</p>
 </section>
+
+${zuzugBlock()}
+
+${plzTable}
 
 <section>
   <h2>Школы</h2>

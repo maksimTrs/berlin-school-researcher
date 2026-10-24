@@ -23,6 +23,12 @@ export const CATEGORIES = {
 } as const;
 export type Category = keyof typeof CATEGORIES;
 
+/**
+ * Что важнее семье, когда фактов больше лимита: есть ли место, чья это зона, стройка. Willkommensklassen — последними:
+ * детей до 7 лет по правилам SenBJF берут в обычный класс, отдельная группа в 1–2 классе — исключение (config/zuzug.json).
+ */
+export const PRIORITY: Category[] = ['capacity', 'catchment', 'construction', 'afterschool', 'leadership', 'welcome_classes'];
+
 const DraftItem = z
   .object({
     category: z.enum(Object.keys(CATEGORIES) as [Category, ...Category[]]),
@@ -306,8 +312,15 @@ export const fetchFollowing =
   (api: Pick<APIRequestContext, 'get'>) =>
   async (url: string): Promise<Fetched> => {
     let current = url;
-    for (let hop = 0; hop <= 5; hop++) {
+    for (let hop = 0, waits = 0; hop <= 5; hop++) {
       const res = await api.get(current, { maxRedirects: 0, maxRetries: 1 });
+      // berlin.de отвечает 429 на частые запросы (Retry-After: 2) — ждём и повторяем, не больше 3 раз
+      if (res.status() === 429 && waits < 3) {
+        waits++;
+        hop--;
+        await new Promise((r) => setTimeout(r, Math.min(Number(res.headers()['retry-after']) || 2, 10) * 1000));
+        continue;
+      }
       const location = res.status() >= 300 && res.status() < 400 ? res.headers()['location'] : undefined;
       if (!location) return { url: current, status: res.status(), contentType: res.headers()['content-type'] ?? '', body: await res.body() };
       current = new URL(location, current).toString();
@@ -434,10 +447,11 @@ export async function verifyDraft(
     ok.push({ ...item, host: new URL(page.final).hostname, source: kind });
   }
 
-  // компактность: новые первыми, не больше maxPerCategory в категории и maxItems всего (у PLZ — на школу)
+  // компактность: важные темы (PRIORITY), в теме — новые первыми; не больше maxPerCategory в категории и maxItems всего (у PLZ — на школу)
   const items: ContextItem[] = [];
   const seen = new Set<string>();
-  for (const item of ok.sort((a, b) => b.published.localeCompare(a.published))) {
+  const rank = (i: ContextItem) => PRIORITY.indexOf(i.category);
+  for (const item of ok.sort((a, b) => rank(a) - rank(b) || b.published.localeCompare(a.published))) {
     const key = `${item.url}|${normalize(item.quote)}`;
     const reject = (reason: string) => rejected.push({ url: item.url, summaryRu: item.summaryRu, reason });
     if (seen.has(key)) reject('повтор');
@@ -454,7 +468,7 @@ export async function verifyDraft(
     checkedAt: now.toISOString(),
     window: { publishedFrom: w.publishedFrom, plannedTo: w.plannedTo },
     queries: draft.queries,
-    items,
+    items: items.sort((a, b) => b.published.localeCompare(a.published)), // в отчёте — от новых к старым
     rejected,
   };
 }

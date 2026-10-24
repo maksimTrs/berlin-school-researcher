@@ -81,4 +81,18 @@ describe('smoke: PLZ → zones', { timeout: 30_000 }, () => {
       ['0314', '03G14', '1', '22'],
     ]);
   });
+
+  it('S8 Ortsteil Friedenau → 1506 addresses in 4 zones; 0799 is the joint zone of 07G40 and 07G06 (esbOverrides)', async () => {
+    const { total, zones } = await plzZones(api, { ortsteil: 'Friedenau' });
+    expect(total).toBe(1506);
+    expect(zones.map((z) => [z.esb, z.addresses])).toEqual([
+      ['0717', 734],
+      ['0716', 535],
+      ['0715', 191],
+      ['0799', 46],
+    ]);
+    expect(zones[3].status).toBe('joint');
+    expect(zones[3].schools.map((s) => s.bsn).sort()).toEqual(['07G06', '07G40']);
+    expect(zones[0].plzs[0]).toEqual({ plz: '12161', addresses: 541 });
+  });
 });
