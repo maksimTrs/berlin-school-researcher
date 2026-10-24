@@ -88,39 +88,44 @@ npm run lookup -- --input input.json      # несколько адресов, �
 
 ```mermaid
 flowchart TD
-    U["Ввод: /school адрес<br/>телефон · Desktop · терминал"] --> S
+    U["Ввод: /school адрес · /school-plz PLZ или район<br/>телефон · Desktop · терминал"] --> S
 
     subgraph H["Claude: только края"]
-        S["skill /school<br/>разбор ввода → input.json"]
+        S["skills /school, /school-plz<br/>разбор ввода → input.json · plz-input.json"]
         F["поиск фактов о школе<br/>→ context.draft.json"]
         P["публикация artifact<br/>итог в чат: школа · маркер · Startchancen"]
     end
 
     S -->|"npm run resolve"| G
     S -->|"npm run lookup"| G
+    S -->|"npm run plz"| G
     F -->|"npm run context"| CX
 
     subgraph C["Код src/ — детерминированный"]
-        G["geo.ts<br/>адрес → зона → школа → соседи"]
+        G["geo.ts<br/>адрес → зона → школа → соседи<br/>PLZ/район → зоны · карта"]
         PT["portrait.ts<br/>Chromium-сессия · подстраницы × 3 года · скриншоты"]
         E["extract.ts<br/>HTML → таблицы, год, Daten-Stand, н/д"]
         SC["score.ts<br/>маркер 🟢🟡🔴: отмены и учителя по годам"]
         SN["startchancen.ts<br/>снимок config/startchancen.json"]
         CX["context.ts<br/>скачать источник · сверить цитату, дату, школу, период"]
+        ZU["zuzug.ts<br/>снимок config/zuzug.json"]
         R["report.ts<br/>result.json → report.html"]
         G --> PT --> E --> R
         E --> SC --> R
         SN --> R
         CX --> R
+        ZU --> R
     end
 
     W[("gdi.berlin.de WFS<br/>adressen_berlin · esb текущего уч. года · schulen")] --> G
+    BM[("sgx.geodatenzentrum.de<br/>basemap.de WMS — подложка карты")] --> G
+    Z[("berlin.de SenBJF<br/>переезд посреди уч. года")] -.->|"сверка в canary"| ZU
     B[("bildung.berlin.de<br/>Schulporträt")] --> PT
     M[("berlin.de<br/>карта школ Startchancen (KML)")] -.->|"update:startchancen · сверка в canary"| SN
 
     D[("berlin.de · pardok.parlament-berlin.de<br/>пресс-релизы, ответы на запросы")] --> CX
 
-    R --> O["out/адрес/<br/>result.json · context.json · report.html · screens/*.png"]
+    R --> O["out/адрес/ · out/plz-… · out/ortsteil-…<br/>result.json · context.json · report.html · screens/*.png · basemap.jpg"]
     O --> P
 ```
 
@@ -159,15 +164,15 @@ flowchart TD
 |---|---|
 | `src/cli.ts` | команды `resolve`, `lookup`, `plz`, `context`, `canary`, `preflight`, `startchancen`; сбой одного адреса не останавливает остальные |
 | `src/preflight.ts` | проверка критичных источников до запуска браузера |
-| `src/geo.ts` | WFS: адрес, зона, выбор школы, соседи; PLZ/район → зоны (`plzZones`), сверка `esbOverrides` (`checkOverrides`) |
+| `src/geo.ts` | WFS: адрес, зона, выбор школы, соседи; PLZ/район → зоны (`plzZones`), подложка карты basemap.de (`basemap`), сверка `esbOverrides` (`checkOverrides`) |
 | `src/portrait.ts` | браузер, поиск школы по номеру, загрузка подстраниц, скриншоты |
 | `src/extract.ts` | список подстраниц (`PAGES`) и ключевых цифр (`KEY_FIGURES`) — новая метрика = новая строка |
 | `src/score.ts` | маркер 🟢🟡🔴 за 3 года: отмены уроков хуже средней по типу школ, дефицит учительских часов — в начале отчёта и в итоге в чат |
 | `src/startchancen.ts` | школа в программе Startchancen — по снимку `config/startchancen.json` |
-| `src/context.ts` | факты о школе из официальных источников: Claude находит, код скачивает документ и оставляет только дословные цитаты с датой и названием школы рядом; не больше 5 фактов, 2 на тему, сверх лимита — важные темы (`PRIORITY`); на `429` berlin.de ждёт и повторяет |
+| `src/context.ts` | факты о школе из официальных источников: Claude находит, код скачивает документ и оставляет только дословные цитаты с датой и названием школы рядом; не больше 5 фактов, 2 на тему, сверх лимита — важные темы (`PRIORITY`); публикации за 12 мес. и планы на 6 мес. вперёд, стройка — на 72 мес. (годы начальной школы): позже 6 мес. — строкой «🗓 Дальние планы», по лимиту уходит первой; на `429` berlin.de ждёт и повторяет |
 | `src/zuzug.ts` | блок «Переезд посреди учебного года» по снимку `config/zuzug.json`; `canary` сверяет цитаты |
 | `src/report.ts` | HTML-отчёт |
-| `config/config.json` | число лет, соседей, адресов, адрес для canary, поправки зон `esbOverrides` (коды зон — слоя текущего учебного года: после 1 августа `canary` сверяет их с новым слоем), школы без своей зоны `schoolsWithoutZone` |
+| `config/config.json` | число лет, соседей, адресов, адрес для canary, окно фактов `context` (`pastMonths`, `futureMonths`, `constructionFutureMonths`) и лимиты, поправки зон `esbOverrides` (коды зон — слоя текущего учебного года: после 1 августа `canary` сверяет их с новым слоем), школы без своей зоны `schoolsWithoutZone` |
 | `.claude/skills/school/SKILL.md` | что делает Claude по `/school` |
 | `.claude/skills/school-plz/SKILL.md` | что делает Claude по `/school-plz` |
 
