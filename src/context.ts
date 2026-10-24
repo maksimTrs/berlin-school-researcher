@@ -24,10 +24,11 @@ export const CATEGORIES = {
 export type Category = keyof typeof CATEGORIES;
 
 /**
- * Что важнее семье, когда фактов больше лимита: есть ли место, чья это зона, стройка. Willkommensklassen — последними:
- * детей до 7 лет по правилам SenBJF берут в обычный класс, отдельная группа в 1–2 классе — исключение (config/zuzug.json).
+ * Что важнее семье, когда фактов больше лимита: есть ли место, чья это зона, стройка, затем Willkommensklassen —
+ * для детей с 3 класса это главное, а детей до 7 лет по правилам SenBJF берут в обычный класс (config/zuzug.json);
+ * продлёнка и руководство — последними.
  */
-export const PRIORITY: Category[] = ['capacity', 'catchment', 'construction', 'afterschool', 'leadership', 'welcome_classes'];
+export const PRIORITY: Category[] = ['capacity', 'catchment', 'construction', 'welcome_classes', 'afterschool', 'leadership'];
 
 const DraftItem = z
   .object({
@@ -72,6 +73,8 @@ export const ContextSchema = z.object({
   rejected: z.array(RejectedSchema),
 });
 export const PlzContextSchema = z.object({ schools: z.array(ContextSchema) });
+// отчёт по адресу: одна закреплённая школа — Context; общая зона (joint) — по записи на каждую школу зоны, как у PLZ
+export const AddressContextSchema = z.union([ContextSchema, PlzContextSchema]);
 
 export type Context = z.infer<typeof ContextSchema>;
 export type ContextItem = Context['items'][number];

@@ -240,6 +240,26 @@ export function assignSchool(
   return { status: 'no_school_in_zone', schools: nearest(all, from, 3) };
 }
 
+/** Поправка esbOverrides для зоны есть, но не применилась (школы нет в реестре) — строка для warnings, иначе null. */
+export function overrideIgnored(c: Pick<Catchment, 'esb' | 'status'>, overrides = config.esbOverrides): string | null {
+  const listed = c.esb ? overrides[c.esb] : undefined;
+  if (!listed || c.status === 'override' || c.status === 'joint') return null;
+  return `Поправка esbOverrides для зоны ${c.esb} (${[listed].flat().join(', ')}) не применена: школы нет в реестре — школа выбрана по карте, поправку сверить`;
+}
+
+/** Для canary: каждый код зоны из esbOverrides есть в слое esbLayer, каждая школа — в реестре. Пустой список — всё на месте. */
+export async function checkOverrides(api: APIRequestContext, overrides = config.esbOverrides): Promise<string[]> {
+  const known = new Set((await primarySchools(api)).map((s) => s.bsn));
+  const problems: string[] = [];
+  for (const [esb, listed] of Object.entries(overrides)) {
+    if (!(await getFeatures(api, 'esb', config.esbLayer, `esb=${cqlString(esb)}`, 'EPSG:4326')).length)
+      problems.push(`esbOverrides: зоны ${esb} нет в слое ${config.esbLayer} — поправку сверить со справочником округа`);
+    for (const bsn of [listed].flat())
+      if (!known.has(bsn)) problems.push(`esbOverrides: школы ${bsn} (зона ${esb}) нет в реестре schulen — поправка не применяется`);
+  }
+  return problems;
+}
+
 export async function catchment(api: APIRequestContext, addr: Candidate): Promise<Catchment> {
   const [zone] = await getFeatures(
     api,

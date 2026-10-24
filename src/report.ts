@@ -8,7 +8,8 @@ import { EMOJI, scoreSchool, verdict } from './score.js';
 import { startchancen } from './startchancen.js';
 import { zuzug } from './zuzug.js';
 
-export type SchoolEntry = { school: School; role: 'main' | 'candidate' | 'neighbor'; data: SchoolData };
+// joint — другая закреплённая школа общей зоны: маркер и факты, как у основной, без скриншотов
+export type SchoolEntry = { school: School; role: 'main' | 'joint' | 'candidate' | 'neighbor'; data: SchoolData };
 
 export type AddressResult = {
   input: AddressQuery;
@@ -168,7 +169,9 @@ function zuzugBlock(): string {
     return '';
   }
   return `<details class="zuzug"><summary>🧳 Переезд в Берлин посреди учебного года — как дают место в школе</summary>
-    <ul>${z.items.map((i) => `<li>${esc(i.summaryRu)} <small>${link(i.url, new URL(i.url).pathname.endsWith('.pdf') ? 'PDF SenBJF' : 'berlin.de')}</small></li>`).join('')}</ul>
+    <ul>${z.items
+      .map((i) => `<li>${esc(i.summaryRu)} <small>${link(i.url, new URL(i.url).pathname.endsWith('.pdf') ? 'PDF SenBJF' : 'berlin.de')}, ${esc(i.published ?? 'без даты на странице')}</small></li>`)
+      .join('')}</ul>
     <p>${z.links.map((l) => link(l.url, l.label)).join('<br>')}</p>
     <p class="note">Цитаты сверены с документами ${esc(z.checkedAt)}; общие правила Берлина, не решение по конкретной школе.</p>
   </details>`;
@@ -233,18 +236,40 @@ function profileValue(label: string, value: string, ctx: Context | null): string
     .join('')}`;
 }
 
-const ROLE: Record<SchoolEntry['role'], string> = { main: 'закреплённая', candidate: 'кандидат', neighbor: 'ближайшая' };
+const ROLE: Record<SchoolEntry['role'], string> = {
+  main: 'закреплённая',
+  joint: 'закреплённая (общая зона)',
+  candidate: 'кандидат',
+  neighbor: 'ближайшая',
+};
 
 // ---------- render ----------
 
-/** ctx — проверенный context.json закреплённой школы, если его собирали. */
-export function renderReport(r: AddressResult, ctx: Context | null = null): string {
+/** ctx — проверенный context.json: закреплённой школы или (общая зона) каждой закреплённой школы, если его собирали. */
+export function renderReport(r: AddressResult, ctx: Context | PlzContext | null = null): string {
   const addr = r.address!;
   const c = r.catchment!;
   const [main, ...others] = r.schools;
   const st = STATUS_TEXT[c.status];
   const years = (main.data.pages.vunt ?? []).map((y) => y.year);
-  const mainCtx = ctx?.bsn === main.school.bsn ? ctx : null;
+  const facts = new Map((ctx ? ('schools' in ctx ? ctx.schools : [ctx]) : []).map((x) => [x.bsn, x]));
+  const mainCtx = facts.get(main.school.bsn) ?? null;
+
+  // другие школы общей зоны закреплены так же, как основная: маркер за годы тренда и проверенные факты
+  const jointSections = others
+    .filter((o) => o.role === 'joint')
+    .map(
+      (o) => `<section>
+  <h2>Тоже закреплённая школа общей зоны · ${esc(o.school.bsn)}</h2>
+  <p><b>${esc(o.data.profile.name || o.school.name)}</b></p>
+  <div>${schoolLinks(o.school, o.data, addr, false)}</div>
+  <p class="meta">Расстояние от адреса по прямой: ${o.school.distanceM ?? '—'} м</p>
+  ${startchancenNote(o.school)}
+  ${scoreBlock(o.data, (o.data.pages.vunt ?? []).map((y) => y.year))}
+</section>
+${contextBlock(facts.get(o.school.bsn) ?? null)}`,
+    )
+    .join('');
 
   const summary = `<div class="scroll"><table class="summary">
     <thead><tr><th>Показатель</th>${years.map((y) => `<th>${esc(y)}</th>`).join('')}</tr></thead>
@@ -262,7 +287,7 @@ export function renderReport(r: AddressResult, ctx: Context | null = null): stri
           .map(
             (o) => `<tr>
               <th scope="row">${esc(o.school.name)} <small>${esc(o.school.bsn)}${inStartchancen(o.school) ? ' · 🔶 Startchancen' : ''}</small><br><small>${schoolLinks(o.school, o.data, addr, false)}</small></th>
-              <td>${c.status === 'joint' && o.role === 'candidate' ? 'закреплённая (общая зона)' : ROLE[o.role]}</td><td>${o.school.distanceM ?? '—'} м</td>
+              <td>${ROLE[o.role]}</td><td>${o.school.distanceM ?? '—'} м</td>
               ${KEY_FIGURES.map((k) => `<td>${figure(o.data, k)}</td>`).join('')}
             </tr>`,
           )
@@ -304,6 +329,8 @@ ${
 </section>
 
 ${contextBlock(mainCtx)}
+
+${jointSections}
 
 ${zuzugBlock()}
 

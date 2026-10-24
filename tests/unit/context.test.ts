@@ -515,6 +515,26 @@ describe('report', () => {
     warnings: [],
   };
 
+  it('joint zone: the other assigned school gets its own block with marker and its verified facts', async () => {
+    const other: School = { ...school, bsn: '07G40', name: '40. Schule (Grundschule)' };
+    const joint: AddressResult = {
+      ...result,
+      catchment: { ...result.catchment!, status: 'joint', schools: [school, other] },
+      schools: [...result.schools, { school: other, role: 'joint', data: { ...result.schools[0].data, bsn: '07G40' } }],
+    };
+    const ctx = {
+      schools: [
+        await verifyDraft(draft('07G32', []), BUERGEL, profile, fetchFixture, NOW),
+        await verifyDraft(draft('07G40', []), other, profile, fetchFixture, NOW),
+      ],
+    };
+    const html = renderReport(joint, ctx);
+    expect(html).toContain('<h2>Одна из закреплённых школ общей зоны · 07G32</h2>');
+    expect(html).toContain('<h2>Тоже закреплённая школа общей зоны · 07G40</h2>');
+    expect(html.match(/Сообщений о школе за этот период не найдено/g)).toHaveLength(2); // факты проверены по обеим
+    expect(html).toContain('<td>закреплённая (общая зона)</td>');
+  });
+
   it('the nearest school is not called assigned when the zone gives no school', () => {
     const titled = (catchment: Catchment) => renderReport({ ...result, catchment }).match(/<h2>([^<]*) · 07G32<\/h2>/)?.[1];
     expect(titled(result.catchment!)).toBe('Закреплённая школа');

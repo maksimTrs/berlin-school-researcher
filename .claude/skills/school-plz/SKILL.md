@@ -39,7 +39,7 @@ argument-hint: <PLZ> | <Ortsteil> | <Straße, PLZ> | <Straße, Ortsteil>
 По **каждой** школе из `zones[].schools` сводки (без повторов; школы из `warnings` — без данных, их пропусти) — правила отбора как в шаге 3a skill `/school`
 (`.claude/skills/school/SKILL.md`): только документы ведомств, только конкретное изменение в этой школе, тот же период.
 Отчёт по PLZ — прикидка до точного адреса, поэтому на школу — **3 факта** (`context.plzMaxItemsPerSchool`). Если фактов больше, код оставит важные:
-`capacity` → `catchment` → `construction` → `afterschool` → `leadership` → `welcome_classes` (`PRIORITY` в `src/context.ts`).
+`capacity` → `catchment` → `construction` → `welcome_classes` → `afterschool` → `leadership` (факт с `contradicts` — всегда первым) (`PRIORITY` в `src/context.ts`).
 
 **Как искать быстро** (школ бывает 10+):
 1. Сначала **один раз на округ**: `Bezirksamt <Bezirk> Pressemitteilung <год> Einschulungsbereich`, `… Grundschule Erweiterung`, `Newsletter <район> <год>` — один документ часто называет несколько школ.

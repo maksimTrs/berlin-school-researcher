@@ -12,8 +12,8 @@ const html = (url: string, text: string, status = 200): Fetched => ({
 const snap: Zuzug = {
   checkedAt: '2026-10-24',
   items: [
-    { url: 'https://www.berlin.de/sen/a', quote: 'Das Schulamt ist zuständig für die Schulplatzvergabe', summaryRu: 'Место даёт Schulamt' },
-    { url: 'https://www.berlin.de/sen/a', quote: 'Kinder bis 7 Jahre … direkt in die Schulanfangsphase', summaryRu: 'До 7 лет — обычный класс' },
+    { url: 'https://www.berlin.de/sen/a', published: null, quote: 'Das Schulamt ist zuständig für die Schulplatzvergabe', summaryRu: 'Место даёт Schulamt' },
+    { url: 'https://www.berlin.de/sen/a', published: null, quote: 'Kinder bis 7 Jahre … direkt in die Schulanfangsphase', summaryRu: 'До 7 лет — обычный класс' },
   ],
   links: [{ url: 'https://www.berlin.de/sen/b.pdf', label: 'PDF' }],
 };
@@ -35,6 +35,20 @@ describe('zuzug snapshot', () => {
     expect(await verifyZuzug(snap, fetch)).toEqual([
       'https://www.berlin.de/sen/a: цитаты «Kinder bis 7 Jahre … direkt in die Schulanfangsphase…» больше нет в документе',
       'https://www.berlin.de/sen/b.pdf: HTTP 404',
+    ]);
+  });
+
+  it('the document date must be the first date in its header; an unofficial host is refused', async () => {
+    const dated: Zuzug = {
+      checkedAt: '2026-10-24',
+      items: [{ url: 'https://www.berlin.de/sen/c.pdf', published: '2024-09', quote: 'Das Schulamt ist zuständig für die Schulplatzvergabe', summaryRu: 'Место даёт Schulamt' }],
+      links: [{ url: 'https://example.org/copy.pdf', label: 'копия' }],
+    };
+    const fetch = async (url: string) =>
+      html(url, `Auflage ${url.includes('berlin.de') ? 'März 2026' : 'September 2024'}. Das Schulamt ist zuständig für die Schulplatzvergabe.`);
+    expect(await verifyZuzug(dated, fetch)).toEqual([
+      'https://www.berlin.de/sen/c.pdf: первая дата в шапке документа — не 2024-09 (вышла новая редакция?)',
+      'https://example.org/copy.pdf: example.org: не официальный источник (config.context.officialSources)',
     ]);
   });
 });

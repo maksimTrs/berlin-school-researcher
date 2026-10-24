@@ -79,7 +79,7 @@ argument-hint: <адрес>[; <адрес> ...]
 
 ## 3a. Факты из официальных источников
 
-Для каждого адреса со `status: ok` — только по закреплённой школе (`school`, `bsn`), не по соседям.
+Для каждого адреса со `status: ok` — только по закреплённой школе (`school`, `bsn`), не по соседям. Общая зона (`catchmentStatus: joint`) — ещё по каждой школе из `joint` сводки: черновик тогда в формате `/school-plz` — `{ "schools": [ { "bsn": …, "queries": […], "items": […] }, … ] }`, по записи на `bsn` и на каждую школу `joint`.
 Цель — несколько проверенных фактов сразу после маркера школы, а не подборка ссылок. Ничего подходящего нет — пустой `items`, это нормальный итог.
 
 **Поиск** — WebSearch `standard`, 3–4 запроса: имя школы без «(Grundschule)» и BSN вместе с
@@ -87,7 +87,7 @@ argument-hint: <адрес>[; <адрес> ...]
 Где искать: пресс-релизы Bezirksamt (`berlin.de/ba-<bezirk>/aktuelles/pressemitteilungen`), страницы Schul- und Sportamt,
 ответы на запросы в Abgeordnetenhaus (`pardok.parlament-berlin.de`) и в BVV округа, рассылки Bezirksamt по районам (`…/newsletter-<район>/`). СМИ и блоги — только как подсказка,
 где искать первоисточник; в черновик идёт сам документ ведомства. berlin.de отвечает `429` на частые запросы — `curl --retry 6 --retry-delay 4`.
-Если фактов больше лимита, код оставляет важные темы: `capacity` → `catchment` → `construction` → `afterschool` → `leadership` → `welcome_classes`.
+Если фактов больше лимита, код оставляет важные темы: `capacity` → `catchment` → `construction` → `welcome_classes` → `afterschool` → `leadership` (факт с `contradicts` — всегда первым).
 
 **Что брать** — только факт о самой школе, который меняет картину для семьи:
 
@@ -146,7 +146,7 @@ argument-hint: <адрес>[; <адрес> ...]
 ## 5. Итог в чат
 
 На каждый адрес — несколько строк из сводки lookup:
-- `school` и `bsn`; `catchmentStatus`: `exact` / `override` — без пометок; `joint` — «⚠️ общая зона нескольких школ: закреплены все» и `candidates` (проверенные факты — только по первой школе); остальное — ⚠️, `candidates` и «уточнить в Schulamt района»;
+- `school` и `bsn`; `catchmentStatus`: `exact` / `override` — без пометок; `joint` — «⚠️ общая зона нескольких школ: закреплены все» и по каждой школе из `joint` строка «школа, `bsn`, `verdict`, 🔶/ℹ️ Startchancen» и её 📌 факты из stdout `context` (`schools[]`); остальное — ⚠️, `candidates` и «уточнить в Schulamt района»;
 - `verdict` — как есть, без пересказа и своих оценок;
 - `startchancen: true` — строка «🔶 В программе Startchancen: больше учеников из социально неблагополучных семей, дополнительные деньги и персонал (что это значит — в отчёте)»; `false` — «ℹ️ Не в программе Startchancen»;
 - ⚠️ `alternatives` адреса, если есть;

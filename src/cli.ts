@@ -2,9 +2,9 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
-import { ContextSchema, Draft, fetchFollowing, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
+import { AddressContextSchema, Draft, fetchFollowing, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
 import { KEY_FIGURES, keyFigure } from './extract.js';
-import { catchment, formatAddress, geocode, neighbors, onStreet, plzZones, resolveStatus, type School } from './geo.js';
+import { catchment, checkOverrides, formatAddress, geocode, neighbors, onStreet, overrideIgnored, plzZones, resolveStatus, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
 import { firstLine, preflight } from './preflight.js';
 import {
@@ -98,16 +98,19 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
       tracePath: args.trace ? join(dir, 'trace.zip') : null,
     });
     const schools: SchoolEntry[] = [];
-    const warnings: string[] = [];
+    const warnings: string[] = [overrideIgnored(c)].filter((w) => w !== null);
     try {
       const page = await browser.context.newPage();
+      // общая зона: остальные её школы тоже закреплены — маркер за годы тренда (score), а не только текущий год
+      const other = c.status === 'joint' ? ('joint' as const) : ('candidate' as const);
       const plan = [
-        ...c.schools.map((school, i) => ({ school, role: i === 0 ? ('main' as const) : ('candidate' as const) })),
+        ...c.schools.map((school, i) => ({ school, role: i === 0 ? ('main' as const) : other })),
         ...near.map((school) => ({ school, role: 'neighbor' as const })),
       ];
+      const depth = { main: 'full', joint: 'score', candidate: 'key', neighbor: 'key' } as const;
       for (const { school, role } of plan) {
         try {
-          schools.push({ school, role, data: await collectSchool(page, school.bsn, role === 'main' ? 'full' : 'key', screensDir) });
+          schools.push({ school, role, data: await collectSchool(page, school.bsn, depth[role], screensDir) });
         } catch (e) {
           // без основной школы отчёта нет; кандидат или сосед — только строка в отчёте
           if (role === 'main') throw e;
@@ -121,7 +124,7 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
     const result: AddressResult = { ...base, status: 'ok', address: addr, alternatives, catchment: c, schools, warnings };
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
     // проверенные факты прошлого прогона не теряются при повторном lookup; дата проверки — в отчёте
-    writeFileSync(join(dir, 'report.html'), renderReport(result, readContext(dir, ContextSchema)));
+    writeFileSync(join(dir, 'report.html'), renderReport(result, readContext(dir, AddressContextSchema)));
     return { result, dir };
   } finally {
     await api.dispose();
@@ -164,6 +167,20 @@ async function contextCmd() {
     const result = raw as AddressResult;
     const main = result.schools[0];
     if (result.status !== 'ok' || !main) throw new Error(`${dir}: в result.json нет закреплённой школы`);
+    if ('schools' in draftJson) {
+      // общая зона: по черновику на каждую закреплённую школу (main и joint)
+      const ctx: PlzContext = { schools: [] };
+      const skipped: { bsn: string; reason: string }[] = [];
+      for (const d of PlzDraft.parse(draftJson).schools) {
+        const s = result.schools.find((x) => x.school.bsn === d.bsn && (x.role === 'main' || x.role === 'joint'));
+        if (!s) skipped.push({ bsn: d.bsn, reason: 'не закреплённая школа этого адреса в result.json' });
+        else ctx.schools.push(await verifyDraft(d, s.school, s.data.profile, fetchUrl));
+      }
+      writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
+      writeFileSync(join(dir, 'report.html'), renderReport(result, ctx));
+      console.log(JSON.stringify({ schools: ctx.schools.map(brief), skipped, report: join(dir, 'report.html') }, null, 2));
+      return;
+    }
     const ctx = await verifyDraft(Draft.parse(draftJson), main.school, main.data.profile, fetchUrl);
     writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
     writeFileSync(join(dir, 'report.html'), renderReport(result, ctx));
@@ -186,6 +203,15 @@ function summarize({ result: r, dir }: { result: AddressResult; dir: string | nu
     school: main ? `${main.data.profile.name || main.school.name}` : null,
     bsn: main?.school.bsn ?? null,
     candidates: r.schools.filter((s) => s.role === 'candidate').map((s) => `${s.school.name} (${s.school.bsn})`),
+    // общая зона: остальные закреплённые школы — с маркером, как основная
+    joint: r.schools
+      .filter((s) => s.role === 'joint')
+      .map((s) => ({
+        school: s.data.profile.name || s.school.name,
+        bsn: s.school.bsn,
+        verdict: verdict(scoreSchool(s.data)).text,
+        startchancen: startchancen().schools.includes(s.school.bsn),
+      })),
     warnings: r.warnings,
     verdict: main ? verdict(scoreSchool(main.data)).text : null,
     startchancen: main ? startchancen().schools.includes(main.school.bsn) : null,
@@ -256,7 +282,7 @@ async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | n
       tracePath: args.trace ? join(dir, 'trace.zip') : null,
     });
     const schools: PlzSchool[] = [];
-    const warnings: string[] = [];
+    const warnings: string[] = zones.map((z) => overrideIgnored(z)).filter((w) => w !== null);
     try {
       const page = await browser.context.newPage();
       for (const school of unique) {
@@ -358,6 +384,12 @@ async function canaryCmd() {
     }
   } catch (e) {
     problems.push(`Startchancen: ${firstLine(e)} — снимок config/startchancen.json не сверен`);
+  }
+  try {
+    // поправки зон ещё указывают на существующие зону слоя и школы
+    problems.push(...(await checkOverrides(api)));
+  } catch (e) {
+    problems.push(`esbOverrides: ${firstLine(e)} — поправки не сверены`);
   }
   try {
     // правила переезда посреди года: цитаты снимка ещё дословно в документах SenBJF

@@ -136,9 +136,15 @@ flowchart TD
 | ни одной | `no_school_in_zone` | ⚠️ 3 ближайшие к адресу |
 | адрес вне всех зон | `no_zone` | ⚠️ 3 ближайшие к адресу |
 | ручная поправка `esbOverrides` в `config/config.json` | `override` | школа из поправки |
-| поправка списком — общая зона нескольких школ («Gemeinsamer ESB» в справочнике округа) | `joint` | ⚠️ все школы списка закреплены, ближайшая первой |
+| поправка списком — общая зона нескольких школ («Gemeinsamer ESB» в справочнике округа) | `joint` | ⚠️ все школы списка закреплены, ближайшая первой; у каждой — маркер за 3 года и проверенные факты |
 
 При любом ⚠️ закреплённую школу стоит уточнить в Schulamt района.
+
+Поправки `esbOverrides` и их источники (коды зон — слоя `esb_2026`; `canary` проверяет, что зона есть в слое и школы — в реестре; не применилась — строка в `warnings`):
+
+| Зона | Школы | Источник |
+|---|---|---|
+| `0799` | `07G40`, `07G06` | [Adressverzeichnis der ESB der Grundschulen in Tempelhof-Schöneberg ab SJ 2026/2027](https://www.berlin.de/ba-tempelhof-schoeneberg/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/adressverzeichnis-der-esb-der-grundschulen-in-ts-ab-sj-2026-2027.pdf): «Gemeinsamer ESB der 40. Schule (Grundschule) und der Sternberg-Grundschule» |
 
 | Файл | Что делает |
 |---|---|
@@ -163,7 +169,7 @@ flowchart TD
 | `npm run lookup -- --input input.json` | полный прогон по файлу адресов (формат — в `SKILL.md`) |
 | `npm run plz -- --plz 10439 \| --ortsteil Friedenau [--street "…"]` | все зоны PLZ и/или района → `out/plz-…/` или `out/ortsteil-…/` |
 | `npm run context -- --dir out/<адрес>` | проверить `context.draft.json` по самим документам → `context.json` и заново `report.html`; для папок `plz-…` и `ortsteil-…` — по каждой школе зон, до 3 фактов на школу |
-| `npm run canary` | эталонный адрес проходит весь путь; при поломке сайта называет подстраницу и поле; сверяет снимки Startchancen и правил переезда (`config/zuzug.json`) с сайтами |
+| `npm run canary` | эталонный адрес проходит весь путь; при поломке сайта называет подстраницу и поле; сверяет снимки Startchancen и правил переезда (`config/zuzug.json`: источник официальный, цитата дословно, дата документа) с сайтами и поправки `esbOverrides` со слоем зон и реестром школ |
 | `npm run update:startchancen` | перезаписать снимок списка Startchancen (если `canary` сказал, что список изменился) и закоммитить |
 | `npm run preflight` | доступны ли критичные источники; `lookup` и `canary` проверяют это сами и при сбое не запускаются (exit code 2) |
 | `npm test` | юнит-тесты на сохранённом HTML, без сети |
