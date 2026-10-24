@@ -34,6 +34,33 @@ async function getFeatures(
 
 const cqlString = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
+// basemap.de (BKG), серая — улицы и названия под зонами; CC BY 4.0, подпись — в карте отчёта
+const BASEMAP = 'https://sgx.geodatenzentrum.de/wms_basemapde';
+
+/**
+ * Подложка карты зон: JPEG ровно на bbox [lon0, lat0, lon1, lat1] размером width × height. В EPSG:4326 картинка
+ * линейна по lon и lat, как проекция SVG карты, — сервер растягивает bbox на размер, и подложка совпадает с зонами.
+ */
+export async function basemap(api: APIRequestContext, bbox: number[], width: number, height: number): Promise<Buffer> {
+  const params = new URLSearchParams({
+    SERVICE: 'WMS',
+    VERSION: '1.1.1', // 1.1.1: bbox в EPSG:4326 — lon,lat (в 1.3.0 — lat,lon)
+    REQUEST: 'GetMap',
+    LAYERS: 'de_basemapde_web_raster_grau',
+    STYLES: '',
+    SRS: 'EPSG:4326',
+    BBOX: bbox.map((v) => v.toFixed(6)).join(','),
+    WIDTH: String(width),
+    HEIGHT: String(height),
+    FORMAT: 'image/jpeg',
+  });
+  const res = await api.get(`${BASEMAP}?${params}`, { maxRetries: 2 });
+  // ошибку WMS отдаёт кодом 200 и XML (ServiceException) — проверяем тип
+  if (!res.ok() || res.headers()['content-type'] !== 'image/jpeg')
+    throw new Error(`basemap.de: HTTP ${res.status()} ${res.headers()['content-type']} ${(await res.text()).slice(0, 200)}`);
+  return res.body();
+}
+
 // ---------- адрес ----------
 
 export type Candidate = {
@@ -186,7 +213,7 @@ export function nearest(schools: School[], from: { lon: number; lat: number }, n
 
 // ---------- зона → школа ----------
 
-export type CatchmentStatus = 'exact' | 'override' | 'joint' | 'matched_by_code' | 'ambiguous' | 'no_school_in_zone' | 'no_zone';
+export type CatchmentStatus = 'exact' | 'override' | 'joint' | 'code_mismatch' | 'matched_by_code' | 'ambiguous' | 'no_school_in_zone' | 'no_zone';
 
 export type Catchment = {
   esb: string | null;
@@ -214,9 +241,13 @@ function inRing([x, y]: [number, number], ring: number[][]): boolean {
 
 // часть районов нумерует зону по школе: зона 1105 ↔ школа 11G05
 const zoneCode = (bsn: string) => bsn.slice(0, 2) + bsn.slice(3);
+// замер esb_2026: вне Mitte код зоны совпал с номером Grundschule в 319 из 320 зон с одной школой; Mitte (01)
+// нумерует зоны иначе, у Gemeinschaftsschule (K) своя схема (0294 ↔ 02K04) — там несовпадение ничего не значит
+const codeComparable = (esb: string, s: School) => !esb.startsWith('01') && s.bsn[2] === 'G';
 
 /**
  * Зона → школа: поправка > одна школа в зоне > совпадение кода зоны с bsn > все кандидаты; пустая зона → 3 ближайшие.
+ * Одна школа с чужим кодом — вероятно, стоит в соседней зоне, а своя школа зоны — за её границей: обе кандидаты.
  * Поправка списком — общая зона нескольких школ (gemeinsamer ESB в справочнике округа): закреплены все, ближайшая первой.
  * Школа без своей зоны (noZone), стоящая в этой, — не кандидат: в отчёте отдельной строкой (withoutZone).
  */
@@ -246,7 +277,11 @@ function bySpace(
   if (listed.length && overridden.length === listed.length)
     return { status: listed.length > 1 ? 'joint' : 'override', schools: nearest(overridden, from, overridden.length) };
   const sorted = nearest(inside, from, inside.length);
-  if (sorted.length === 1) return { status: 'exact', schools: sorted };
+  if (sorted.length === 1) {
+    const [s] = sorted;
+    if (!codeComparable(esb, s) || zoneCode(s.bsn) === esb) return { status: 'exact', schools: sorted };
+    return { status: 'code_mismatch', schools: [s, ...all.filter((x) => x !== s && zoneCode(x.bsn) === esb && codeComparable(esb, x))] };
+  }
   if (sorted.length > 1) {
     const byCode = sorted.filter((s) => zoneCode(s.bsn) === esb);
     // остальные школы зоны остаются в отчёте кандидатами

@@ -25,6 +25,22 @@ describe('assignSchool', () => {
     expect(assignSchool('0110', [a], all, home, {})).toMatchObject({ status: 'exact', schools: [{ bsn: '01G01' }] });
   });
 
+  it('one Grundschule inside with another zone’s code (outside Mitte) → code_mismatch, the school with the zone’s code second', () => {
+    // esb_2026, Lichtenberg: в зоне 1102 стоит только 11G03, а 11G02 — в зоне 1132
+    const g03 = school('11G03', 13.401);
+    const g02 = school('11G02', 13.41);
+    const r = assignSchool('1102', [g03], [g03, g02, school('11G32', 13.42)], home, {});
+    expect([r.status, r.schools.map((s) => s.bsn)]).toEqual(['code_mismatch', ['11G03', '11G02']]);
+    // школы с кодом зоны нет — кандидат один, но предупреждение остаётся
+    expect(assignSchool('1102', [g03], [g03], home, {})).toMatchObject({ status: 'code_mismatch', schools: [{ bsn: '11G03' }] });
+  });
+
+  it('code is not compared in Mitte (own zone numbering) and for Gemeinschaftsschulen (own scheme) → exact', () => {
+    const k = school('02K04', 13.401);
+    expect(assignSchool('0294', [k], [k], home, {}).status).toBe('exact');
+    expect(assignSchool('0110', [a], all, home, {}).status).toBe('exact');
+  });
+
   it('several inside, zone code matches bsn → matched_by_code, the rest of the zone kept after it by distance', () => {
     const r = assignSchool('0110', [c, a, b], all, home, {});
     expect(r.status).toBe('matched_by_code');

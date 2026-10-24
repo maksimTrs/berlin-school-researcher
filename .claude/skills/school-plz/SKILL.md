@@ -59,7 +59,7 @@ argument-hint: <PLZ | Ortsteil | Straße, PLZ | Straße, Ortsteil>[; <…> ...]
 
 **Как искать быстро** (школ бывает 10+):
 1. Сначала **один раз на округ**: `Bezirksamt <Bezirk> Pressemitteilung <год> Einschulungsbereich`, `… Grundschule Erweiterung`, `Newsletter <район> <год>` — один документ часто называет несколько школ.
-2. Страница `Schulorganisation` / `Schulamt` округа: у части округов там официальный **справочник адресов зон** (PDF) — им проверяй зоны `ambiguous`, `no_school_in_zone` и `matched_by_code`.
+2. Страница `Schulorganisation` / `Schulamt` округа: у части округов там официальный **справочник адресов зон** (PDF) — им проверяй зоны `ambiguous`, `no_school_in_zone`, `code_mismatch` и `matched_by_code`.
    Справочник называет общую зону нескольких школ («Gemeinsamer ESB der … und der …») — предложи пользователю поправку `esbOverrides` списком школ с цитатой; сам конфиг без согласия не меняй.
 3. По школам — по 2–3 названия в одном запросе (`"A-Grundschule" OR "B-Grundschule" <район> <год>`), а не запрос на школу.
 4. berlin.de отвечает `429 Calm down` на частые запросы: `curl --retry 6 --retry-delay 4`. Код (`npm run context`) повторяет сам.

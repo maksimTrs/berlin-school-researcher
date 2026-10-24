@@ -1,13 +1,15 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
 import { AddressContextSchema, Draft, fetchFollowing, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
 import { currentFigures, KEY_FIGURES, keyFigure } from './extract.js';
-import { catchment, checkOverrides, checkWithoutZone, formatAddress, geocode, neighbors, onStreet, overrideIgnored, plzZones, resolveStatus, type School } from './geo.js';
+import { basemap, catchment, checkOverrides, checkWithoutZone, formatAddress, geocode, neighbors, onStreet, overrideIgnored, plzZones, resolveStatus, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
 import { firstLine, preflight } from './preflight.js';
 import {
+  MAP_W,
+  mapFrame,
   plzTitle,
   renderPlzReport,
   renderReport,
@@ -160,7 +162,7 @@ async function contextCmd() {
         else ctx.schools.push(await verifyDraft(d, s.school, s.data.profile, fetchUrl, new Date(), config.context.plzMaxItemsPerSchool));
       }
       writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
-      writeFileSync(join(dir, 'report.html'), renderPlzReport(result, ctx));
+      writeFileSync(join(dir, 'report.html'), renderPlzReport(result, ctx, readBasemap(dir)));
       console.log(JSON.stringify({ schools: ctx.schools.map(brief), skipped, report: join(dir, 'report.html') }, null, 2));
       return;
     }
@@ -303,14 +305,28 @@ async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | n
       await browser.close();
     }
 
+    // подложка карты — не обязательна: недоступен basemap.de — карта без улиц, отчёт всё равно пишем
+    const frame = mapFrame(zones);
+    if (frame) {
+      try {
+        writeFileSync(join(dir, 'basemap.jpg'), await basemap(api, frame.bbox, MAP_W, frame.h));
+      } catch (e) {
+        console.error(`Подложка карты не загрузилась, карта без улиц: ${firstLine(e)}`);
+      }
+    }
+
     const result: PlzResult = { ...base, status: 'ok', addresses: total, zones, schools, warnings };
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
-    writeFileSync(join(dir, 'report.html'), renderPlzReport(result, readContext(dir, PlzContextSchema)));
+    writeFileSync(join(dir, 'report.html'), renderPlzReport(result, readContext(dir, PlzContextSchema), readBasemap(dir)));
     return { result, dir };
   } finally {
     await api.dispose();
   }
 }
+
+/** basemap.jpg папки plz → data: URI для карты отчёта (artifact пропускает только встроенные картинки). */
+const readBasemap = (dir: string) =>
+  existsSync(join(dir, 'basemap.jpg')) ? `data:image/jpeg;base64,${readFileSync(join(dir, 'basemap.jpg')).toString('base64')}` : null;
 
 function summarizePlz({ result: r, dir }: { result: PlzResult; dir: string | null }) {
   const data = new Map(r.schools.map((s) => [s.school.bsn, s.data]));

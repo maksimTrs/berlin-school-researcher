@@ -48,6 +48,7 @@ const STATUS_TEXT: Record<Catchment['status'], { text: string; warn: boolean }> 
   exact: { text: 'Школа найдена: единственная школа в зоне', warn: false },
   override: { text: 'Школа задана вручную (esbOverrides)', warn: false },
   joint: { text: 'Общая зона нескольких школ (gemeinsamer ESB по справочнику округа): закреплены все; в какую возьмут — решают школы и Schulamt', warn: true },
+  code_mismatch: { text: 'В зоне одна школа, но её номер не совпадает с кодом зоны: вероятно, она закреплена за соседней зоной, а школа этой зоны стоит за её границей — уточнить в Schulamt района', warn: true },
   matched_by_code: { text: 'В зоне несколько школ, выбрана по совпадению кода зоны и номера школы', warn: true },
   ambiguous: { text: 'В зоне несколько школ — закреплённую уточнить в Schulamt района', warn: true },
   no_school_in_zone: { text: 'Внутри зоны нет школы — показаны ближайшие, уточнить в Schulamt района', warn: true },
@@ -65,6 +66,7 @@ const MAIN_TITLE: Record<Catchment['status'], string> = {
   exact: 'Закреплённая школа',
   override: 'Закреплённая школа',
   joint: 'Одна из закреплённых школ общей зоны',
+  code_mismatch: 'Школа внутри зоны — закреплённая не определена',
   matched_by_code: 'Вероятно закреплённая школа',
   ambiguous: 'Ближайшая из школ зоны — закреплённая не определена',
   no_school_in_zone: 'Ближайшая школа — закреплённая не определена',
@@ -380,16 +382,16 @@ function page(title: string, body: string): string {
 /* Layout: одна колонка-документ, таблицы прокручиваются внутри себя */
 :root {
   --bg: #f8f9f7; --surface: #ffffff; --fg: #1c2321; --muted: #5b6662; --line: #d9dfdc;
-  --accent: #0a6a6a; --warn: #9a4a07; --warn-bg: #fcf1e2; --zone-fill: #e8f1f0; --zone-hover: #cfe3e1;
+  --accent: #0a6a6a; --warn: #9a4a07; --warn-bg: #fcf1e2; --zone-fill: #e8f1f0; --zone-hover: #cfe3e1; --basemap-filter: none;
   --display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
   --body: 'Source Sans 3', 'Segoe UI', Roboto, sans-serif;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #121615; --surface: #1a201e; --fg: #e5ebe8; --muted: #9aa6a1; --line: #2c3532;
-  --accent: #5cc6c1; --warn: #f0a560; --warn-bg: #2d2116; --zone-fill: #1d2a28; --zone-hover: #26403d; color-scheme: dark; } }
+  --accent: #5cc6c1; --warn: #f0a560; --warn-bg: #2d2116; --zone-fill: #1d2a28; --zone-hover: #26403d; --basemap-filter: invert(.88) contrast(.9); color-scheme: dark; } }
 :root[data-theme="dark"] {
   --bg: #121615; --surface: #1a201e; --fg: #e5ebe8; --muted: #9aa6a1; --line: #2c3532;
-  --accent: #5cc6c1; --warn: #f0a560; --warn-bg: #2d2116; --zone-fill: #1d2a28; --zone-hover: #26403d; color-scheme: dark; }
+  --accent: #5cc6c1; --warn: #f0a560; --warn-bg: #2d2116; --zone-fill: #1d2a28; --zone-hover: #26403d; --basemap-filter: invert(.88) contrast(.9); color-scheme: dark; }
 body { background: var(--bg); color: var(--fg); font: 16px/1.5 var(--body);
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 48px; }
 main { max-width: 1100px; margin: 0 auto; display: grid; gap: 28px; }
@@ -429,6 +431,10 @@ details img { display: block; margin-top: 8px; max-width: 100%; height: auto; }
 .zone-map svg { display: block; width: 100%; min-width: 640px; height: auto; max-height: 80vh; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
 .zone-map .zone { fill: var(--zone-fill); stroke: var(--accent); stroke-width: 2; fill-rule: evenodd; }
 .zone-map .zone:hover { fill: var(--zone-hover); }
+.zone-map .basemap { filter: var(--basemap-filter); }
+.with-basemap .zone { fill: var(--accent); fill-opacity: .1; stroke-width: 3; }
+.with-basemap .zone:hover { fill: var(--accent); fill-opacity: .22; }
+.with-basemap .dots circle { fill: var(--accent); opacity: .7; }
 .zone-map .dots circle { fill: var(--muted); opacity: .55; pointer-events: none; }
 .zone-map .school circle { fill: var(--fg); stroke: var(--surface); stroke-width: 2; }
 .zone-map text { font: 600 14px var(--body); fill: var(--fg); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
@@ -470,16 +476,15 @@ export const plzTitle = (q: PlzQuery) => {
 
 // ---------- карта зон ----------
 
-const MAP_W = 1000;
+export const MAP_W = 1000;
 
 /**
- * Карта зон запроса: границы зон, дома запроса точками, школы маркерами. Зон бывает до десятка — цветом их
- * не различить (на карте надёжно различимы только 3 оттенка), поэтому зона подписана номером прямо на карте,
- * заливка нейтральная. Подсказка при наведении — <title>. Табличный вид — таблица зон выше.
+ * Кадр карты зон: дома запроса и школы с полями, градус долготы сжат до широты Берлина.
+ * bbox [lon0, lat0, lon1, lat1] — ровно то, что видно в SVG 0..MAP_W × 0..h: по нему же скачивают подложку.
  */
-export function zoneMap(zones: ZoneShare[]): string {
+export function mapFrame(zones: ZoneShare[]) {
   const withPoints = zones.filter((z) => z.points?.length && z.geometry);
-  if (!withPoints.length) return ''; // result.json до карты
+  if (!withPoints.length) return null; // result.json до карты
   const schools = [...new Map(zones.flatMap((z) => z.schools).map((s): [string, School] => [s.bsn, s])).values()];
   const pts = [...withPoints.flatMap((z) => z.points!), ...schools.map((s): [number, number] => [s.lon, s.lat])];
   const lons = pts.map((p) => p[0]);
@@ -494,8 +499,20 @@ export function zoneMap(zones: ZoneShare[]): string {
   const h = Math.round(spanY * scale);
   const cx = (lon0 + lon1) / 2;
   const cy = (lat0 + lat1) / 2;
-  const x = (lon: number) => (MAP_W / 2 + (lon - cx) * kx * scale).toFixed(1);
-  const y = (lat: number) => (h / 2 - (lat - cy) * scale).toFixed(1);
+  const bbox = [cx - MAP_W / 2 / (kx * scale), cy - h / 2 / scale, cx + MAP_W / 2 / (kx * scale), cy + h / 2 / scale];
+  return { withPoints, schools, h, bbox, x: (lon: number) => (MAP_W / 2 + (lon - cx) * kx * scale).toFixed(1), y: (lat: number) => (h / 2 - (lat - cy) * scale).toFixed(1) };
+}
+
+/**
+ * Карта зон запроса: границы зон, дома запроса точками, школы маркерами. Зон бывает до десятка — цветом их
+ * не различить (на карте надёжно различимы только 3 оттенка), поэтому зона подписана номером прямо на карте,
+ * заливка нейтральная. Подсказка при наведении — <title>. Табличный вид — таблица зон выше.
+ * basemap — data: URI подложки basemap.de на кадр mapFrame (улицы и названия); нет — карта без подложки.
+ */
+export function zoneMap(zones: ZoneShare[], basemap: string | null = null): string {
+  const frame = mapFrame(zones);
+  if (!frame) return '';
+  const { withPoints, schools, h, x, y } = frame;
   const ring = (r: number[][]) => `M${r.map(([lon, lat]) => `${x(lon)},${y(lat)}`).join('L')}Z`;
   const path = (g: NonNullable<ZoneShare['geometry']>) =>
     (g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []).flat().map(ring).join('');
@@ -525,11 +542,11 @@ export function zoneMap(zones: ZoneShare[]): string {
     .join('');
   // свёрнута: таблица зон выше — основной вид, карта длинная и нужна не каждому
   return `<details class="zone-map-box"><summary>🗺 Карта зон (${withPoints.length})</summary>
-  <figure class="zone-map">
+  <figure class="zone-map${basemap ? ' with-basemap' : ''}">
     <div class="scroll"><svg viewBox="0 0 ${MAP_W} ${h}" role="img" aria-label="Карта зон Einschulbereich: границы зон, дома запроса и школы">
-      <g class="zones">${areas}</g><g class="dots">${dots}</g><g>${labels}</g>${marks}
+      ${basemap ? `<image class="basemap" href="${basemap}" width="${MAP_W}" height="${h}" preserveAspectRatio="none"/>` : ''}<g class="zones">${areas}</g><g class="dots">${dots}</g><g>${labels}</g>${marks}
     </svg></div>
-    <figcaption>Границы зон Einschulbereich (номер зоны — на карте), точки — дома запроса, кружки с номером — школы. Наведите на зону или школу — подсказка; на телефоне карта листается вбок.</figcaption>
+    <figcaption>Границы зон Einschulbereich (номер зоны — на карте), точки — дома запроса, кружки с номером — школы. Наведите на зону или школу — подсказка; на телефоне карта листается вбок.${basemap ? ` Подложка: © GeoBasis-DE / BKG (${new Date().getFullYear()}), <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.` : ''}</figcaption>
   </figure>
   </details>`;
 }
@@ -544,8 +561,8 @@ const excludedNote = (r: Pick<PlzResult, 'input' | 'excludedByOrtsteil'>) => {
   return `<p class="meta">ℹ️ Ещё ${x.addresses} адресов ${what} — в других районах (${esc(x.ortsteile.join(', '))}), в отчёт не вошли${zones ? `: зоны ${zones}` : ''}.</p>`;
 };
 
-/** ctx — проверенный context.json по школам PLZ, если его собирали. */
-export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null): string {
+/** ctx — проверенный context.json по школам PLZ, если его собирали; basemap — подложка карты (zoneMap). */
+export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null, basemap: string | null = null): string {
   const facts = new Map(ctx?.schools.map((c) => [c.bsn, c]));
   const data = new Map(r.schools.map((s) => [s.school.bsn, s.data]));
   const years = (r.schools[0]?.data.pages.vunt ?? []).map((y) => y.year);
@@ -570,7 +587,7 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null): st
           .map(
             (s, i) => `<tr>
               ${i === 0 ? `<th scope="row" rowspan="${z.schools.length}">${esc(z.esb)}<br><small>${z.addresses} · ${esc(share(z.addresses, r.addresses))}</small>${manyPlz ? `<br><small>${z.plzs.map((p) => `${esc(p.plz)}: ${p.addresses}`).join(' · ')}</small>` : ''}${st.warn ? `<br><small class="bad">⚠️ ${esc(st.text)}</small>` : ''}${(z.withoutZone ?? []).map((w) => `<br><small>ℹ️ ещё в зоне ${esc(schoolName(w))} ${esc(w.bsn)} — своей зоны нет, не закреплена</small>`).join('')}</th>` : ''}
-              <td>${z.status === 'matched_by_code' ? `<small>${i === 0 ? 'вероятно закреплённая' : 'кандидат'}</small><br>` : z.status === 'joint' ? '<small>общая зона</small><br>' : ''}${esc(schoolName(s))} <small>${esc(s.bsn)}${inStartchancen(s) ? ' · 🔶 Startchancen' : ''}</small><br>${marker(s)}</td>
+              <td>${z.status === 'matched_by_code' ? `<small>${i === 0 ? 'вероятно закреплённая' : 'кандидат'}</small><br>` : z.status === 'code_mismatch' ? `<small>${i === 0 ? 'стоит в зоне, номер другой' : 'номер совпадает с кодом зоны'}</small><br>` : z.status === 'joint' ? '<small>общая зона</small><br>' : ''}${esc(schoolName(s))} <small>${esc(s.bsn)}${inStartchancen(s) ? ' · 🔶 Startchancen' : ''}</small><br>${marker(s)}</td>
             </tr>`,
           )
           .join('');
@@ -652,7 +669,7 @@ ${excludedNote(r)}
 <section>
   <h2>Зоны и школы</h2>
   ${zonesTable}
-  ${zoneMap(r.zones)}
+  ${zoneMap(r.zones, basemap)}
   <p class="note">Доля — от числа адресов (домов) в реестре, не квартир: особняк и дом на 200 квартир считаются одинаково. Это не вероятность, что квартира попадёт в зону. Маркер — за ${years.length} уч. года, как в отчёте по адресу.</p>
 </section>
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compactGeometry, excludedByOrtsteil, groupByZone, plzsOf, streetsOf, type Feature, type PlzAddress, type ZoneShare } from '../../src/geo.js';
-import { plzTitle, share, zoneMap } from '../../src/report.js';
+import { MAP_W, mapFrame, plzTitle, share, zoneMap } from '../../src/report.js';
 import { PlzInput, PlzQuery } from '../../src/schema.js';
 import { config } from '../../src/config.js';
 
@@ -126,6 +126,23 @@ describe('zone map', () => {
     expect(svg.match(/class="school"/g)).toHaveLength(1); // одна школа двух зон — один маркер
     expect(svg).toMatch(/^<details class="zone-map-box"><summary>🗺 Карта зон \(2\)<\/summary>/); // свёрнута по умолчанию
     expect(zoneMap([{ ...z('0717', 13.32), geometry: undefined, points: undefined }])).toBe('');
+  });
+
+  it('basemap bbox is exactly the SVG frame, so the WMS image lines up with the zones', () => {
+    const z: ZoneShare = {
+      esb: '0419', esbText: null, status: 'exact', addresses: 2, plzs: [], streets: [],
+      schools: [{ bsn: '04G19', name: 'X', lon: 13.315, lat: 52.474 } as ZoneShare['schools'][number]],
+      geometry: { type: 'Polygon', coordinates: [[[13.30, 52.46], [13.33, 52.46], [13.33, 52.49], [13.30, 52.46]]] },
+      points: [[13.305, 52.465], [13.325, 52.485]],
+    };
+    const f = mapFrame([z])!;
+    const [lon0, lat0, lon1, lat1] = f.bbox;
+    expect([+f.x(lon0), +f.x(lon1), +f.y(lat1), +f.y(lat0)]).toEqual([0, MAP_W, 0, f.h]);
+
+    expect(zoneMap([z])).not.toContain('<image');
+    const svg = zoneMap([z], 'data:image/jpeg;base64,AAAA');
+    expect(svg).toContain(`<image class="basemap" href="data:image/jpeg;base64,AAAA" width="${MAP_W}" height="${f.h}"`);
+    expect(svg).toContain('© GeoBasis-DE / BKG'); // CC BY 4.0 требует подпись
   });
 
   it('a north–south street (1 km long, 50 m wide) stays inside the viewBox', () => {
