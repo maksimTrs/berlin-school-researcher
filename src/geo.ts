@@ -376,7 +376,7 @@ export async function neighbors(api: APIRequestContext, addr: Candidate, exclude
 
 // ---------- PLZ → зоны ----------
 
-export type PlzAddress = { street: string; house: number; suffix: string | null; plz?: string; lon: number; lat: number };
+export type PlzAddress = { street: string; house: number | null; suffix: string | null; plz?: string; lon: number; lat: number };
 
 /**
  * Зона внутри PLZ или района: школа по тем же правилам, что для адреса, дома запроса, которые в неё попали,
@@ -412,13 +412,16 @@ export function groupByZone(addrs: PlzAddress[], zones: Feature[]): { zone: Feat
   return [...groups].map(([zone, addrs]) => ({ zone, addrs })).sort((a, b) => b.addrs.length - a.addrs.length);
 }
 
-/** Номера домов по улицам, по возрастанию: «Schivelbeiner Straße» → ['1', '2', '3A', …]. */
+/** Номера домов по улицам, по возрастанию: «Schivelbeiner Straße» → ['1', '2', '3A', …]; у площади без номеров (hnr пуст) — []. */
 export function streetsOf(addrs: PlzAddress[]): ZoneShare['streets'] {
   const sorted = [...addrs].sort(
-    (a, b) => a.street.localeCompare(b.street, 'de') || a.house - b.house || (a.suffix ?? '').localeCompare(b.suffix ?? ''),
+    (a, b) => a.street.localeCompare(b.street, 'de') || (a.house ?? 0) - (b.house ?? 0) || (a.suffix ?? '').localeCompare(b.suffix ?? ''),
   );
   const byStreet = new Map<string, string[]>();
-  for (const a of sorted) (byStreet.get(a.street) ?? byStreet.set(a.street, []).get(a.street)!).push(`${a.house}${a.suffix ?? ''}`);
+  for (const a of sorted) {
+    const houses = byStreet.get(a.street) ?? byStreet.set(a.street, []).get(a.street)!;
+    if (a.house !== null) houses.push(`${a.house}${a.suffix ?? ''}`);
+  }
   return [...byStreet].map(([street, houses]) => ({ street, houses }));
 }
 

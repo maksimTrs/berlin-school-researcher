@@ -60,6 +60,14 @@ describe('streetsOf', () => {
       { street: 'Weimarer Straße', houses: ['2', '2B', '10'] },
     ]);
   });
+
+  it('a square without house numbers (hnr empty in the registry) keeps its street, no «null»', () => {
+    const square = { ...addr('Habermannplatz', 0, 0), house: null };
+    expect(streetsOf([square, addr('Kahlstraße', 2, 0), { ...square, street: 'Kahlstraße' }])).toEqual([
+      { street: 'Habermannplatz', houses: [] },
+      { street: 'Kahlstraße', houses: ['2'] },
+    ]);
+  });
 });
 
 describe('PlzQuery', () => {

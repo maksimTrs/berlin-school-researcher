@@ -641,7 +641,7 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null, bas
   const streets = r.zones
     .map(
       (z) => `<details${r.input.street ? ' open' : ''}><summary>Зона ${esc(z.esb)} — адресов: ${z.addresses}</summary>
-        ${z.streets.map((s) => `<p><b>${esc(s.street)}</b>: ${esc(s.houses.join(', '))}</p>`).join('')}
+        ${z.streets.map((s) => `<p><b>${esc(s.street)}</b>: ${s.houses.length ? esc(s.houses.join(', ')) : 'без номера дома'}</p>`).join('')}
       </details>`,
     )
     .join('');
