@@ -109,6 +109,9 @@ describe('checks', () => {
     expect(schoolKeys({ bsn: '07G01', name: 'Schöneberger Grundschule' })).toEqual(['07g01', 'schöneberger grundschule']);
     // одно слово через дефис — ещё и сокращение из ответов округа
     expect(schoolKeys({ bsn: '07G16', name: 'Ruppin-Grundschule' })).toEqual(['07g16', 'ruppin-grundschule', 'ruppin-gs']);
+    // «…-Schule» у Grundschule — тоже «-GS» (письмо BA в Hauptausschuss: «an der Cecilien-GS»); у школы другого типа — нет
+    expect(schoolKeys({ bsn: '04G25', name: 'Cecilien-Schule (Grundschule)' })).toEqual(['04g25', 'cecilien-schule', 'cecilien-gs']);
+    expect(schoolKeys({ bsn: '04K11', name: 'Comenius-Schule' })).toEqual(['04k11', 'comenius-schule']);
   });
 
   it('mentionsSchool: «-GS» abbreviation in a list of schools (BVV answer, Tempelhof-Schöneberg)', () => {
@@ -116,6 +119,8 @@ describe('checks', () => {
     const at = { start: text.indexOf('(paul'), end: text.indexOf('räume') + 5 };
     expect(mentionsSchool(text, at, schoolKeys({ bsn: '07G16', name: 'Ruppin-Grundschule' }))).toBe(true);
     expect(mentionsSchool(text, at, schoolKeys({ bsn: '07G13', name: 'Paul-Klee-Grundschule' }))).toBe(true);
+    const cecilien = normalize('Herstellung inklusiver Klassenräume an der Cecilien-GS');
+    expect(mentionsSchool(cecilien, { start: 0, end: cecilien.length }, schoolKeys({ bsn: '04G25', name: 'Cecilien-Schule (Grundschule)' }))).toBe(true);
     // школы нет в списке, а перед списком названа ещё одна — не засчитывается
     const other = normalize('Die Stechlinsee-Grundschule wurde erweitert. ') + text;
     const shift = other.length - text.length;

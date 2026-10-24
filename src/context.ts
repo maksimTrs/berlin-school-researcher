@@ -161,9 +161,10 @@ export function schoolKeys(s: Pick<School, 'bsn' | 'name'>): string[] {
   // одно слово («schöneberger», «am schloss» без места) слишком общее — тогда только полное имя
   const distinct = core.replace(/^(am|an der|im|in der) /, '');
   if (distinct.length >= 6 && /[\s-]/.test(core)) return [s.bsn.toLowerCase(), core];
-  // и сокращение, как в ответах округа: «(Paul-Klee-GS, Käthe-Kollwitz-GS, Ruppin-GS)»
-  const short = full.match(/^[\p{L}\d.]+-(grund|gemeinschafts)schule$/u);
-  return [s.bsn.toLowerCase(), full, ...(short ? [`${core}-${short[1] === 'grund' ? 'gs' : 'gems'}`] : [])];
+  // и сокращение, как в ответах округа: «(Paul-Klee-GS, Käthe-Kollwitz-GS, Ruppin-GS)»; «Cecilien-Schule» с bsn …G… — тоже «Cecilien-GS»
+  const short = full.match(/^[\p{L}\d.]+-(grund|gemeinschafts)?schule$/u);
+  const kind = short && (short[1] ?? (s.bsn[2] === 'G' ? 'grund' : undefined));
+  return [s.bsn.toLowerCase(), full, ...(kind ? [`${core}-${kind === 'grund' ? 'gs' : 'gems'}`] : [])];
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
