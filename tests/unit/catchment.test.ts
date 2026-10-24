@@ -42,9 +42,17 @@ describe('assignSchool', () => {
   });
 
   it('several inside, zone code matches bsn → matched_by_code, the rest of the zone kept after it by distance', () => {
-    const r = assignSchool('0110', [c, a, b], all, home, {});
+    const [x, y, z] = [school('04G01', 13.401), school('04G10', 13.402), school('04G20', 13.403)];
+    const r = assignSchool('0410', [z, x, y], [x, y, z], home, {});
     expect(r.status).toBe('matched_by_code');
-    expect(r.schools.map((s) => s.bsn)).toEqual(['01G10', '01G01', '01G20']);
+    expect(r.schools.map((s) => s.bsn)).toEqual(['04G10', '04G01', '04G20']);
+  });
+
+  it('several inside: a code “match” in Mitte or with a Gemeinschaftsschule means nothing → ambiguous', () => {
+    expect(assignSchool('0110', [c, a, b], all, home, {}).status).toBe('ambiguous');
+    // esb_2026, Pankow: 03K07 даёт «0307» случайно — у Gemeinschaftsschule своя нумерация зон
+    const [k, g] = [school('03K07', 13.401), school('03G48', 13.402)];
+    expect(assignSchool('0307', [g, k], [k, g], home, {})).toMatchObject({ status: 'ambiguous', schools: [{ bsn: '03K07' }, { bsn: '03G48' }] });
   });
 
   it('several inside, no code match → ambiguous, nearest first', () => {

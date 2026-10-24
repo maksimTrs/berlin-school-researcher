@@ -242,7 +242,7 @@ function inRing([x, y]: [number, number], ring: number[][]): boolean {
 // часть районов нумерует зону по школе: зона 1105 ↔ школа 11G05
 const zoneCode = (bsn: string) => bsn.slice(0, 2) + bsn.slice(3);
 // замер esb_2026: вне Mitte код зоны совпал с номером Grundschule в 319 из 320 зон с одной школой; Mitte (01)
-// нумерует зоны иначе, у Gemeinschaftsschule (K) своя схема (0294 ↔ 02K04) — там несовпадение ничего не значит
+// нумерует зоны иначе, у Gemeinschaftsschule (K) своя схема (0294 ↔ 02K04) — там и несовпадение, и совпадение ничего не значат
 const codeComparable = (esb: string, s: School) => !esb.startsWith('01') && s.bsn[2] === 'G';
 
 /**
@@ -283,7 +283,7 @@ function bySpace(
     return { status: 'code_mismatch', schools: [s, ...all.filter((x) => x !== s && zoneCode(x.bsn) === esb && codeComparable(esb, x))] };
   }
   if (sorted.length > 1) {
-    const byCode = sorted.filter((s) => zoneCode(s.bsn) === esb);
+    const byCode = sorted.filter((s) => codeComparable(esb, s) && zoneCode(s.bsn) === esb);
     // остальные школы зоны остаются в отчёте кандидатами
     return byCode.length === 1
       ? { status: 'matched_by_code', schools: [byCode[0], ...sorted.filter((s) => s !== byCode[0])] }
