@@ -1,4 +1,17 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(npm run resolve *)",
+      "Bash(npm run lookup *)",
+      "Bash(npm run plz *)",
+      "Bash(npm run context *)",
+      "Bash(npm run canary)",
+      "Bash(npm run preflight)",
+      "Bash(npm test)",
+      "Bash(npm run test:smoke)",
+      "Bash(npm run typecheck)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
