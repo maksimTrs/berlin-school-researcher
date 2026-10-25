@@ -453,6 +453,7 @@ details img { display: block; margin-top: 8px; max-width: 100%; height: auto; }
 .zone-map .label { font: 700 20px var(--display); text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
 .zuzug ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; }
 .zuzug p { margin: 8px 0 0; }
+.plz-zones { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
 @media (max-width: 560px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } }
 </style>
 ${body}`;
@@ -585,44 +586,52 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null, bas
     const d = data.get(s.bsn);
     return d ? esc(verdict(scoreSchool(d)).text) : '<span class="nd">Schulporträt не загрузился</span>';
   };
+  // имя школы в таблицах — ссылка на её блок в «Школах»; Schulporträt не загрузился — блока нет, ссылки тоже
+  const toSchool = (s: School) => (data.has(s.bsn) ? `<a href="#school-${esc(s.bsn)}">${esc(schoolName(s))}</a>` : esc(schoolName(s)));
 
-  // запрос по району охватывает несколько PLZ — у зоны пишем, в каких из них её дома
+  // запрос по району охватывает несколько PLZ — тогда таблица «PLZ из объявления → школы»
   const manyPlz = new Set(r.zones.flatMap((z) => (z.plzs ?? []).map((p) => p.plz))).size > 1; // plzs нет в result.json до района
+  // у доли подписан знаменатель: в таблице зон — все дома запроса, в таблице PLZ — дома одного PLZ
+  const scope = r.input.street ? 'улицы' : r.input.ortsteil ? 'района' : 'PLZ';
 
   // две колонки без .summary: текст переносится, и маркер виден на телефоне без прокрутки
-  const zonesTable = `<table>
-    <thead><tr><th>Зона · адресов</th><th>Школа и маркер</th></tr></thead>
+  const zonesTable = `<div class="scroll"><table>
+    <thead><tr><th>Доля домов ${scope}</th><th>Школа и маркер</th></tr></thead>
     <tbody>${r.zones
       .map((z) => {
         const st = STATUS_TEXT[z.status];
         return z.schools
           .map(
             (s, i) => `<tr>
-              ${i === 0 ? `<th scope="row" rowspan="${z.schools.length}">${esc(z.esb)}<br><small>${z.addresses} · ${esc(share(z.addresses, r.addresses))}</small>${manyPlz ? `<br><small>${z.plzs.map((p) => `${esc(p.plz)}: ${p.addresses}`).join(' · ')}</small>` : ''}${st.warn ? `<br><small class="bad">⚠️ ${esc(st.text)}</small>` : ''}${(z.withoutZone ?? []).map((w) => `<br><small>ℹ️ ещё в зоне ${esc(schoolName(w))} ${esc(w.bsn)} — своей зоны нет, не закреплена</small>`).join('')}</th>` : ''}
-              <td>${z.status === 'matched_by_code' ? `<small>${i === 0 ? 'вероятно закреплённая' : 'кандидат'}</small><br>` : z.status === 'code_mismatch' ? `<small>${i === 0 ? 'стоит в зоне, номер другой' : 'номер совпадает с кодом зоны'}</small><br>` : z.status === 'joint' ? '<small>общая зона</small><br>' : ''}${esc(schoolName(s))} <small>${esc(s.bsn)}${inStartchancen(s) ? ' · 🔶 Startchancen' : ''}</small><br>${marker(s)}</td>
+              ${i === 0 ? `<th scope="row" rowspan="${z.schools.length}"><b>${esc(share(z.addresses, r.addresses))}</b> <small>(${z.addresses})</small><br><small>зона ${esc(z.esb)}</small>${st.warn ? `<br><small class="bad">⚠️ ${esc(st.text)}</small>` : ''}${(z.withoutZone ?? []).map((w) => `<br><small>ℹ️ ещё в зоне ${esc(schoolName(w))} ${esc(w.bsn)} — своей зоны нет, не закреплена</small>`).join('')}</th>` : ''}
+              <td>${z.status === 'matched_by_code' ? `<small>${i === 0 ? 'вероятно закреплённая' : 'кандидат'}</small><br>` : z.status === 'code_mismatch' ? `<small>${i === 0 ? 'стоит в зоне, номер другой' : 'номер совпадает с кодом зоны'}</small><br>` : z.status === 'joint' ? '<small>общая зона</small><br>' : ''}${toSchool(s)} <small>${esc(s.bsn)}${inStartchancen(s) ? ' · 🔶 Startchancen' : ''}</small><br>${marker(s)}</td>
             </tr>`,
           )
           .join('');
       })
       .join('')}</tbody>
-  </table>`;
+  </table></div>`;
 
-  // объявление называет PLZ: по каждому PLZ района — какие зоны и школы в нём, от большей доли к меньшей
+  // объявление называет PLZ: по каждому PLZ района — какие зоны и школы в нём, от большей доли к меньшей, с маркером:
+  // весь ответ на «какая школа при этом PLZ и какая она» в одной строке
   const byPlz = new Map<string, { z: ZoneShare; n: number }[]>();
   for (const z of r.zones) for (const p of z.plzs ?? []) (byPlz.get(p.plz) ?? byPlz.set(p.plz, []).get(p.plz)!).push({ z, n: p.addresses });
   const plzTable = manyPlz
     ? `<section>
-  <h2>PLZ из объявления → зоны</h2>
+  <h2>PLZ из объявления → школы</h2>
   <div class="scroll"><table>
-    <thead><tr><th>PLZ · адресов</th><th>Зоны и школы</th></tr></thead>
+    <thead><tr><th>PLZ</th><th>Доля домов PLZ — школа и маркер</th></tr></thead>
     <tbody>${[...byPlz]
       .map(([plz, zs]) => [plz, zs, zs.reduce((n, x) => n + x.n, 0)] as const)
       .sort((a, b) => b[2] - a[2])
       .map(
-        ([plz, zs, total]) => `<tr><th scope="row">${esc(plz)}<br><small>${total}</small></th><td>${zs
+        ([plz, zs, total]) => `<tr><th scope="row">${esc(plz)}<br><small>домов в ${scope === 'улицы' ? 'запросе' : 'районе'}: ${total}</small></th><td><ul class="plz-zones">${zs
           .sort((a, b) => b.n - a.n)
-          .map(({ z, n }) => `${esc(z.esb)} · ${esc(share(n, total))} — ${z.schools.map((s) => `${esc(schoolName(s))} <small>${esc(s.bsn)}</small>`).join(' / ')}`)
-          .join('<br>')}</td></tr>`,
+          .map(
+            ({ z, n }) =>
+              `<li><b>${esc(share(n, total))}</b> <small>(${n}) · зона ${esc(z.esb)}${z.status === 'joint' ? ', общая' : ''}</small>${z.schools.map((s) => `<br>${toSchool(s)} <small>${esc(s.bsn)}</small> — ${marker(s)}`).join('')}</li>`,
+          )
+          .join('')}</ul></td></tr>`,
       )
       .join('')}</tbody>
   </table></div>
@@ -632,7 +641,7 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null, bas
 
   const schoolSections = r.schools
     .map(
-      ({ school: s, data: d }) => `<section class="metric">
+      ({ school: s, data: d }) => `<section class="metric" id="school-${esc(s.bsn)}">
         <h3>${esc(schoolName(s))} · ${esc(s.bsn)}</h3>
         <div>${[link(d.portraitUrl, 'Schulporträt'), link(maps.place(s), 'Google Maps')].join(' · ')}</div>
         ${startchancenNote(s)}
@@ -678,6 +687,8 @@ ${
 ${outside ? `<p class="warn">⚠️ Адресов вне всех зон: ${outside}.</p>` : ''}
 ${excludedNote(r)}
 
+${plzTable}
+
 <section>
   <h2>Зоны и школы</h2>
   ${zonesTable}
@@ -686,8 +697,6 @@ ${excludedNote(r)}
 </section>
 
 ${zuzugBlock()}
-
-${plzTable}
 
 <section>
   <h2>Школы</h2>

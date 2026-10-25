@@ -696,8 +696,8 @@ describe('PLZ', () => {
 
   it('zone matched by code: the probable school and the other schools of the zone as candidates', () => {
     const html = renderPlzReport({ ...result, zones: [{ ...result.zones[0], status: 'matched_by_code', schools: [school, other] }] });
-    expect(html).toContain('<small>вероятно закреплённая</small><br>Melli-Beese-Schule');
-    expect(html).toContain('<small>кандидат</small><br>Schule am Ginkobaum');
+    expect(html).toContain('<small>вероятно закреплённая</small><br><a href="#school-09G06">Melli-Beese-Schule');
+    expect(html).toContain('<small>кандидат</small><br><a href="#school-09G07">Schule am Ginkobaum');
     expect(renderPlzReport(result)).not.toContain('вероятно закреплённая');
   });
 
@@ -708,6 +708,33 @@ describe('PLZ', () => {
     // с улицей — дома этой улицы, а не всего PLZ
     expect(renderPlzReport({ ...result, input: { plz: '12487', ortsteil: 'Johannisthal', street: 'Sterndamm' }, excludedByOrtsteil })).toContain('ℹ️ Ещё 100 адресов Sterndamm в PLZ 12487');
     expect(renderPlzReport(result)).not.toContain('в других районах');
+  });
+
+  it('Ortsteil with several PLZ: the PLZ table comes first, shares are of the PLZ, each school with its marker', () => {
+    const zones: PlzResult['zones'] = [
+      { ...result.zones[0], plzs: [{ plz: '12487', addresses: 5 }, { plz: '12489', addresses: 1 }] },
+      { ...result.zones[1], plzs: [{ plz: '12487', addresses: 1 }, { plz: '12489', addresses: 3 }] },
+    ];
+    const html = renderPlzReport({ ...result, input: { ortsteil: 'Johannisthal', street: null }, zones });
+    expect(html.indexOf('PLZ из объявления → школы')).toBeLessThan(html.indexOf('<h2>Зоны и школы'));
+    const row = html.slice(html.indexOf('<th scope="row">12487'), html.indexOf('</tr>', html.indexOf('<th scope="row">12487')));
+    expect(row).toContain('домов в районе: 6');
+    expect(row).toMatch(/<b>83 %<\/b> <small>\(5\) · зона 0906<\/small><br><a href="#school-09G06">Melli-Beese-Schule[^<]*<\/a> <small>09G06<\/small> — (⚪|🟢|🟡|🔴)/);
+    expect(row).toContain('<b>17 %</b> <small>(1) · зона 0907</small>');
+    // в таблице зон доля — от домов района, без разбивки по PLZ: она дублировала таблицу PLZ
+    expect(html).toContain('<th>Доля домов района</th>');
+    expect(html).toContain('<b>60 %</b> <small>(6)</small><br><small>зона 0906</small>');
+    expect(html).not.toContain('12487: 5');
+    expect(renderPlzReport(result)).not.toContain('PLZ из объявления');
+  });
+
+  it('school names in the tables link to the school block; no Schulporträt — no block, no link', () => {
+    const html = renderPlzReport(result);
+    expect(html).toContain('<section class="metric" id="school-09G06">');
+    expect(html).toContain('<a href="#school-09G07">Schule am Ginkobaum');
+    const failed = renderPlzReport({ ...result, schools: [result.schools[0]] });
+    expect(failed).not.toContain('#school-09G07');
+    expect(failed).toContain('Schule am Ginkobaum (Grundschule) <small>09G07');
   });
 
   it('zone row names a school without its own zone', () => {
