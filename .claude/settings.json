@@ -1,6 +1,10 @@
 {
   "permissions": {
+    "defaultMode": "acceptEdits",
     "allow": [
+      "Bash",
+      "WebFetch",
+      "WebSearch",
       "Bash(npm run resolve *)",
       "Bash(npm run lookup *)",
       "Bash(npm run plz *)",
