@@ -6,7 +6,7 @@ import { formatAddress, type Candidate, type Catchment, type ExcludedByOrtsteil,
 import type { SchoolData, YearPage } from './portrait.js';
 import type { AddressQuery, PlzQuery } from './schema.js';
 import { EMOJI, scoreSchool, verdict } from './score.js';
-import { schulamt } from './schulamt.js';
+import { sameAddress, schulamt } from './schulamt.js';
 import { startchancen } from './startchancen.js';
 import { zuzug } from './zuzug.js';
 
@@ -196,18 +196,31 @@ function officesBlock(bezirke: string[]): string {
     console.warn(`config/schulamt.json: не читается (${(e as Error).message.split('\n')[0]}) — отчёт без Schulamt`);
     return '';
   }
-  const office = (title: string, o: { url: string; address: string | null; addressSource?: string; email: string | null }) =>
-    `<p>${title}: ${[o.address ? (o.addressSource ? link(o.addressSource, o.address) : esc(o.address)) : '<span class="nd">н/д — адреса нет на странице</span>', o.email && `<a href="mailto:${esc(o.email)}">${esc(o.email)}</a>`, link(o.url, 'berlin.de')].filter(Boolean).join(' · ')}</p>`;
+  type Office = { url: string; address: string | null; addressSource?: string; email: string | null };
+  // listing — запись справочника SenBJF (только у Schulaufsicht): телефон и ящик оттуда, адрес сверяется с адресом страницы
+  const office = (title: string, o: Office, listing?: { address: string; phone: string; email: string }) => {
+    const own = o.address && (o.addressSource ? link(o.addressSource, o.address) : esc(o.address));
+    const listed = listing && link(s.directory.url, listing.address);
+    const address = !own
+      ? (listed ?? '<span class="nd">н/д — адреса нет на странице</span>')
+      : !listing || sameAddress(o.address!, listing.address)
+        ? own
+        : `<span class="bad">⚠️ адрес в источниках расходится: ${own} (страница округа) · ${listed} (справочник SenBJF) — уточните по телефону</span>`;
+    const email = listing?.email ?? o.email;
+    // в tel: — первый номер из «030 90249-1701/1702»
+    const phone = listing && `<a href="tel:${listing.phone.split('/')[0].replace(/\D/g, '')}">${esc(listing.phone)}</a>`;
+    return `<p>${title}: ${[address, phone, email && `<a href="mailto:${esc(email)}">${esc(email)}</a>`, link(o.url, 'berlin.de')].filter(Boolean).join(' · ')}</p>`;
+  };
   const rows = bezirke.map((b) => {
     const e = s.bezirke[b];
     if (!e) return `<p class="nd">н/д — нет Schulamt округа «${esc(b)}» в config/schulamt.json</p>`;
-    return office(`🏛 <b>Schulamt ${esc(b)}</b>`, e.schulamt) + office(`🔎 <b>Schulaufsicht ${esc(b)}</b>`, e.schulaufsicht);
+    return office(`🏛 <b>Schulamt ${esc(b)}</b>`, e.schulamt) + office(`🔎 <b>Schulaufsicht ${esc(b)}</b>`, e.schulaufsicht, e.schulaufsicht.directory);
   });
   if (!rows.length) return '';
   return `<div class="offices">
     <p class="meta">${esc(s.roles.schulamt.summaryRu)} ${esc(s.roles.schulaufsicht.summaryRu)} <small>${link(s.roles.schulamt.url, 'SenBJF')}, ${link(s.roles.schulaufsicht.url, 'SenBJF')}</small></p>
     ${rows.join('')}
-    <small>Адреса и ящики — со страниц ведомств на ${esc(s.checkedAt)}, без имён и личных номеров: они на странице berlin.de.</small>
+    <small>Адреса и ящики — со страниц ведомств, телефон и ящик Schulaufsicht — из справочника ${link(s.directory.url, s.directory.title)}; сверено ${esc(s.checkedAt)}, без имён и личных номеров: они на странице berlin.de.</small>
   </div>`;
 }
 
