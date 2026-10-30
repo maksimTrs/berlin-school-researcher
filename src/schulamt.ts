@@ -12,6 +12,8 @@ const FILE = new URL('../config/schulamt.json', import.meta.url);
 const Office = z.object({
   url: z.string().url(), // страница ведомства на сайте округа; своей нет — общая страница SenBJF
   address: z.string().min(15).nullable(), // дословно со страницы url; null — на странице адреса нет или он не ведомства
+  // на странице url адреса нет или он устарел — адрес дословно из этого официального документа (PDF SenBJF и т. п.)
+  addressSource: z.string().url().optional(),
   email: z.string().email().nullable(), // общий ящик со страницы url, не личный
 });
 const Role = z.object({ url: z.string().url(), quote: z.string().min(30).max(600), summaryRu: z.string().min(10).max(160) });
@@ -30,7 +32,7 @@ export const schulamt = () => (snapshot ??= Snapshot.parse(JSON.parse(readFileSy
 const hasAddress = (text: string, address: string) => !!(findQuote(text, address) ?? findQuote(text, address.replace(', ', ' ')));
 
 /**
- * Каждая страница официальная (и после переадресаций) и открывается; адрес ещё на странице ведомства, email — в её
+ * Каждая страница официальная (и после переадресаций) и открывается; адрес ещё на странице ведомства (или в addressSource), email — в её
  * HTML (часто только в mailto:), цитаты ролей — в документах SenBJF; в снимке есть каждый округ из `bezirke`.
  */
 export async function verifySchulamt(snap: Schulamt, fetchUrl: (url: string) => Promise<Fetched>, bezirke: string[] = []): Promise<string[]> {
@@ -62,9 +64,10 @@ export async function verifySchulamt(snap: Schulamt, fetchUrl: (url: string) => 
   for (const [bezirk, offices] of Object.entries(snap.bezirke)) {
     for (const [kind, o] of Object.entries(offices)) {
       const p = await page(o.url);
-      if (!p) continue;
-      if (o.address && !hasAddress(p.text, o.address)) problems.push(`${bezirk} ${kind}: адреса «${o.address}» больше нет на ${o.url}`);
-      if (o.email && !p.html.includes(o.email.toLowerCase())) problems.push(`${bezirk} ${kind}: email ${o.email} больше нет на ${o.url}`);
+      const where = o.addressSource ?? o.url;
+      const a = o.addressSource ? await page(o.addressSource) : p;
+      if (o.address && a && !hasAddress(a.text, o.address)) problems.push(`${bezirk} ${kind}: адреса «${o.address}» больше нет на ${where}`);
+      if (o.email && p && !p.html.includes(o.email.toLowerCase())) problems.push(`${bezirk} ${kind}: email ${o.email} больше нет на ${o.url}`);
     }
   }
   const missing = bezirke.filter((b) => !snap.bezirke[b]);

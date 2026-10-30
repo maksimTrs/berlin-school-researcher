@@ -15,11 +15,11 @@
   "bezirke": {
     "Mitte": {
       "schulamt": { "url": "https://www.berlin.de/ba-mitte/politik-und-verwaltung/aemter/schul-und-sportamt/", "address": "Karl-Marx-Allee 31, 10178 Berlin", "email": null },
-      "schulaufsicht": { "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/", "address": null, "email": null }
+      "schulaufsicht": { "url": "https://www.berlin.de/ba-mitte/politik-und-verwaltung/aemter/schul-und-sportamt/schule/artikel.235982.php", "address": "Karl-Marx-Allee 31, 10178 Berlin", "email": null }
     },
     "Friedrichshain-Kreuzberg": {
       "schulamt": { "url": "https://www.berlin.de/ba-friedrichshain-kreuzberg/politik-und-verwaltung/aemter/schul-und-sportamt/schule/", "address": "Frankfurter Allee 35/37, 10247 Berlin", "email": "schulsport@ba-fk.berlin.de" },
-      "schulaufsicht": { "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/", "address": null, "email": null }
+      "schulaufsicht": { "url": "https://www.berlin.de/ba-friedrichshain-kreuzberg/politik-und-verwaltung/aemter/schul-und-sportamt/schule/artikel.162571.php", "address": "Frankfurter Allee 35/37, 10247 Berlin", "email": "Schulaufsicht02@senbjf.berlin.de" }
     },
     "Pankow": {
       "schulamt": { "url": "https://www.berlin.de/ba-pankow/politik-und-verwaltung/aemter/schul-und-sportamt/schule/", "address": "Fröbelstr. 17, 10405 Berlin", "email": null },
@@ -35,19 +35,19 @@
     },
     "Steglitz-Zehlendorf": {
       "schulamt": { "url": "https://www.berlin.de/ba-steglitz-zehlendorf/politik-und-verwaltung/aemter/schul-und-sportamt/schulen/", "address": "Kirchstr. 1/3, 14163 Berlin", "email": null },
-      "schulaufsicht": { "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/", "address": null, "email": null }
+      "schulaufsicht": { "url": "https://www.berlin.de/ba-steglitz-zehlendorf/politik-und-verwaltung/aemter/schul-und-sportamt/schulen/artikel.84942.php", "address": "Wilskistraße 84, 14163 Berlin", "email": null }
     },
     "Tempelhof-Schöneberg": {
       "schulamt": { "url": "https://www.berlin.de/ba-tempelhof-schoeneberg/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/schulorganisation-623375.php", "address": "Alarichstr. 12-17, 12105 Berlin", "email": "schulorg@ba-ts.berlin.de" },
       "schulaufsicht": { "url": "https://www.berlin.de/ba-tempelhof-schoeneberg/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/schulaufsicht-357153.php", "address": "Alarichstr. 12-17, 12105 Berlin", "email": null }
     },
     "Neukölln": {
-      "schulamt": { "url": "https://www.berlin.de/ba-neukoelln/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/", "address": null, "email": null },
-      "schulaufsicht": { "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/", "address": null, "email": null }
+      "schulamt": { "url": "https://www.berlin.de/ba-neukoelln/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/artikel.290281.php", "address": "Boddinstraße 34, 12053 Berlin", "email": null },
+      "schulaufsicht": { "url": "https://www.berlin.de/ba-neukoelln/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/artikel.290416.php", "address": "Buckower Damm 114, 12349 Berlin", "email": "I08-Sekr@senbjf.berlin.de" }
     },
     "Treptow-Köpenick": {
       "schulamt": { "url": "https://www.berlin.de/ba-treptow-koepenick/politik-und-verwaltung/aemter/schul-und-sportamt/schule/", "address": "Alt-Köpenick 21, 12555 Berlin", "email": "schulamt@ba-tk.berlin.de" },
-      "schulaufsicht": { "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/", "address": null, "email": null }
+      "schulaufsicht": { "url": "https://www.berlin.de/ba-treptow-koepenick/politik-und-verwaltung/aemter/schul-und-sportamt/schule/artikel.129111.php", "address": "Luisenstr. 16, 12557 Berlin", "addressSource": "https://www.berlin.de/sen/bjf/gefluechtete/koordinierungsstellen-fuer-willkommensklassen.pdf", "email": "09schulaufsicht@senbjf.berlin.de" }
     },
     "Marzahn-Hellersdorf": {
       "schulamt": { "url": "https://www.berlin.de/ba-marzahn-hellersdorf/politik-und-verwaltung/aemter/schul-und-sportamt/schule/", "address": "Alice-Salomon-Platz 3, 12627 Berlin", "email": "post.sspa@ba-mh.berlin.de" },
@@ -59,7 +59,7 @@
     },
     "Reinickendorf": {
       "schulamt": { "url": "https://www.berlin.de/ba-reinickendorf/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/", "address": "Eichborndamm 215, 13437 Berlin", "email": "schulamt@reinickendorf.berlin.de" },
-      "schulaufsicht": { "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/", "address": null, "email": null }
+      "schulaufsicht": { "url": "https://www.berlin.de/ba-reinickendorf/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/schulaufsicht-1552710.php", "address": "Innungsstraße 40, 13509 Berlin", "addressSource": "https://www.berlin.de/sen/bjf/gefluechtete/koordinierungsstellen-fuer-willkommensklassen.pdf", "email": null }
     }
   }
 }

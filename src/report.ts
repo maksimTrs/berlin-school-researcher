@@ -196,8 +196,8 @@ function officesBlock(bezirke: string[]): string {
     console.warn(`config/schulamt.json: не читается (${(e as Error).message.split('\n')[0]}) — отчёт без Schulamt`);
     return '';
   }
-  const office = (title: string, o: { url: string; address: string | null; email: string | null }) =>
-    `<p>${title}: ${[o.address ? esc(o.address) : '<span class="nd">н/д — адреса нет на странице</span>', o.email && `<a href="mailto:${esc(o.email)}">${esc(o.email)}</a>`, link(o.url, 'berlin.de')].filter(Boolean).join(' · ')}</p>`;
+  const office = (title: string, o: { url: string; address: string | null; addressSource?: string; email: string | null }) =>
+    `<p>${title}: ${[o.address ? (o.addressSource ? link(o.addressSource, o.address) : esc(o.address)) : '<span class="nd">н/д — адреса нет на странице</span>', o.email && `<a href="mailto:${esc(o.email)}">${esc(o.email)}</a>`, link(o.url, 'berlin.de')].filter(Boolean).join(' · ')}</p>`;
   const rows = bezirke.map((b) => {
     const e = s.bezirke[b];
     if (!e) return `<p class="nd">н/д — нет Schulamt округа «${esc(b)}» в config/schulamt.json</p>`;
