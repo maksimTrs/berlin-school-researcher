@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
 import { AddressContextSchema, Draft, fetchFollowing, longTerm, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
 import { currentFigures, KEY_FIGURES, keyFigure } from './extract.js';
-import { basemap, catchment, checkOverrides, checkWithoutZone, formatAddress, geocode, neighbors, onStreet, overrideIgnored, plzZones, resolveStatus, type School } from './geo.js';
+import { basemap, catchment, checkOverrides, checkWithoutZone, formatAddress, geocode, neighbors, onStreet, overrideIgnored, plzZones, primarySchools, resolveStatus, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
 import { firstLine, preflight } from './preflight.js';
 import {
@@ -20,6 +20,7 @@ import {
   type SchoolEntry,
 } from './report.js';
 import { Input, parseAddress, PlzInput, PlzQuery, type AddressQuery } from './schema.js';
+import { verifySchulamt, schulamt } from './schulamt.js';
 import { scoreProblems, scoreSchool, verdict } from './score.js';
 import { diffSchools, fetchStartchancen, saveSnapshot, startchancen } from './startchancen.js';
 import { verifyZuzug, zuzug } from './zuzug.js';
@@ -389,7 +390,7 @@ async function plzCmd() {
 
 /**
  * Ежемесячная проверка: эталонный адрес проходит весь путь, ключевые подстраницы текущего года отдают данные,
- * входы маркера — за каждый год тренда; снимки Startchancen и правил переезда совпадают с сайтом.
+ * входы маркера — за каждый год тренда; снимки Startchancen, правил переезда и Schulamt округов совпадают с сайтами.
  */
 async function canaryCmd() {
   if (!(await sitesAvailable())) return;
@@ -434,6 +435,11 @@ async function canaryCmd() {
     await check('Переезд (config/zuzug.json)', async () =>
       (await verifyZuzug(zuzug(), fetchFollowing(api))).map((p) => `Переезд (config/zuzug.json): ${p} — найди новую формулировку и обнови снимок`),
     );
+    // Schulamt и Schulaufsicht округов: адрес и email ещё на страницах ведомств, запись есть у каждого округа школ реестра
+    await check('Schulamt (config/schulamt.json)', async () => {
+      const bezirke = [...new Set((await primarySchools(api)).map((s) => s.bezirk))];
+      return (await verifySchulamt(schulamt(), fetchFollowing(api), bezirke)).map((p) => `Schulamt (config/schulamt.json): ${p} — сверь страницу ведомства и обнови снимок`);
+    });
   } finally {
     await api.dispose();
   }

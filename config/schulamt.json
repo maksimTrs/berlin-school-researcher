@@ -1,0 +1,65 @@
+{
+  "checkedAt": "2026-10-30",
+  "roles": {
+    "schulamt": {
+      "url": "https://www.berlin.de/sen/bildung/schule/berliner-schulen/schulwechsel-nach-berlin/",
+      "quote": "Das Schulamt ist zuständig für die Schulplatzvergabe",
+      "summaryRu": "Schulamt округа распределяет места в школах."
+    },
+    "schulaufsicht": {
+      "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/",
+      "quote": "Die Schulaufsicht in den Berliner Bezirken kümmert sich vor Ort um alle inneren Schulangelegenheiten. Das heißt, sie hat die Fach- und Dienstaufsicht über die Schulen in Berlin und ist als Beratungs-, Unterstützungs-, Beschwerde- und Widerspruchsstelle Anlaufpunkt für Eltern und Schüler/-innen.",
+      "summaryRu": "Schulaufsicht (Senat) надзирает за школами; к ней идут за советом, с жалобой и возражением."
+    }
+  },
+  "bezirke": {
+    "Mitte": {
+      "schulamt": { "url": "https://www.berlin.de/ba-mitte/politik-und-verwaltung/aemter/schul-und-sportamt/", "address": "Karl-Marx-Allee 31, 10178 Berlin", "email": null },
+      "schulaufsicht": { "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/", "address": null, "email": null }
+    },
+    "Friedrichshain-Kreuzberg": {
+      "schulamt": { "url": "https://www.berlin.de/ba-friedrichshain-kreuzberg/politik-und-verwaltung/aemter/schul-und-sportamt/schule/", "address": "Frankfurter Allee 35/37, 10247 Berlin", "email": "schulsport@ba-fk.berlin.de" },
+      "schulaufsicht": { "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/", "address": null, "email": null }
+    },
+    "Pankow": {
+      "schulamt": { "url": "https://www.berlin.de/ba-pankow/politik-und-verwaltung/aemter/schul-und-sportamt/schule/", "address": "Fröbelstr. 17, 10405 Berlin", "email": null },
+      "schulaufsicht": { "url": "https://www.berlin.de/ba-pankow/politik-und-verwaltung/aemter/schul-und-sportamt/schulaufsicht/", "address": "Tino-Schwierzina-Str. 32, 13089 Berlin", "email": null }
+    },
+    "Charlottenburg-Wilmersdorf": {
+      "schulamt": { "url": "https://www.berlin.de/ba-charlottenburg-wilmersdorf/verwaltung/aemter/schule-und-sport/schulamt/", "address": "Otto-Suhr-Allee 100, 10585 Berlin", "email": "schulamt@charlottenburg-wilmersdorf.de" },
+      "schulaufsicht": { "url": "https://www.berlin.de/ba-charlottenburg-wilmersdorf/verwaltung/aemter/schule-und-sport/schulamt/artikel.202179.php", "address": "Waldschulallee 29, 14055 Berlin", "email": null }
+    },
+    "Spandau": {
+      "schulamt": { "url": "https://www.berlin.de/ba-spandau/politik-und-verwaltung/aemter/schul-und-sportamt/schule/", "address": "Streitstraße 9, 13587 Berlin", "email": "schulamt@ba-spandau.berlin.de" },
+      "schulaufsicht": { "url": "https://www.berlin.de/ba-spandau/politik-und-verwaltung/aemter/schul-und-sportamt/schulaufsicht/", "address": "Streitstr. 6, 13587 Berlin", "email": null }
+    },
+    "Steglitz-Zehlendorf": {
+      "schulamt": { "url": "https://www.berlin.de/ba-steglitz-zehlendorf/politik-und-verwaltung/aemter/schul-und-sportamt/schulen/", "address": "Kirchstr. 1/3, 14163 Berlin", "email": null },
+      "schulaufsicht": { "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/", "address": null, "email": null }
+    },
+    "Tempelhof-Schöneberg": {
+      "schulamt": { "url": "https://www.berlin.de/ba-tempelhof-schoeneberg/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/schulorganisation-623375.php", "address": "Alarichstr. 12-17, 12105 Berlin", "email": "schulorg@ba-ts.berlin.de" },
+      "schulaufsicht": { "url": "https://www.berlin.de/ba-tempelhof-schoeneberg/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/schulaufsicht-357153.php", "address": "Alarichstr. 12-17, 12105 Berlin", "email": null }
+    },
+    "Neukölln": {
+      "schulamt": { "url": "https://www.berlin.de/ba-neukoelln/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/", "address": null, "email": null },
+      "schulaufsicht": { "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/", "address": null, "email": null }
+    },
+    "Treptow-Köpenick": {
+      "schulamt": { "url": "https://www.berlin.de/ba-treptow-koepenick/politik-und-verwaltung/aemter/schul-und-sportamt/schule/", "address": "Alt-Köpenick 21, 12555 Berlin", "email": "schulamt@ba-tk.berlin.de" },
+      "schulaufsicht": { "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/", "address": null, "email": null }
+    },
+    "Marzahn-Hellersdorf": {
+      "schulamt": { "url": "https://www.berlin.de/ba-marzahn-hellersdorf/politik-und-verwaltung/aemter/schul-und-sportamt/schule/", "address": "Alice-Salomon-Platz 3, 12627 Berlin", "email": "post.sspa@ba-mh.berlin.de" },
+      "schulaufsicht": { "url": "https://www.berlin.de/ba-marzahn-hellersdorf/politik-und-verwaltung/aemter/schul-und-sportamt/schule/schulaufsicht-marzahn-hellersdorf--aufgabenbereiche-und-kontaktdaten-1181760.php", "address": "Fritz-Lang-Straße 6, 12627 Berlin", "email": null }
+    },
+    "Lichtenberg": {
+      "schulamt": { "url": "https://www.berlin.de/ba-lichtenberg/politik-und-verwaltung/behoerdenwegweiser/artikel.1396129.php", "address": "Alt-Friedrichsfelde 60, 10315 Berlin", "email": "post.schulamt@lichtenberg.berlin.de" },
+      "schulaufsicht": { "url": "https://www.berlin.de/ba-lichtenberg/politik-und-verwaltung/behoerdenwegweiser/artikel.264579.php", "address": "Alt-Friedrichsfelde 60, 10315 Berlin", "email": null }
+    },
+    "Reinickendorf": {
+      "schulamt": { "url": "https://www.berlin.de/ba-reinickendorf/politik-und-verwaltung/aemter/schul-und-sportamt/schulamt/", "address": "Eichborndamm 215, 13437 Berlin", "email": "schulamt@reinickendorf.berlin.de" },
+      "schulaufsicht": { "url": "https://www.berlin.de/sen/bildung/unterstuetzung/schulaufsicht/", "address": null, "email": null }
+    }
+  }
+}

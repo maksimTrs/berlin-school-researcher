@@ -6,6 +6,7 @@ import { formatAddress, type Candidate, type Catchment, type ExcludedByOrtsteil,
 import type { SchoolData, YearPage } from './portrait.js';
 import type { AddressQuery, PlzQuery } from './schema.js';
 import { EMOJI, scoreSchool, verdict } from './score.js';
+import { schulamt } from './schulamt.js';
 import { startchancen } from './startchancen.js';
 import { zuzug } from './zuzug.js';
 
@@ -185,6 +186,31 @@ function zuzugBlock(): string {
   </details>`;
 }
 
+/** Куда обращаться: Schulamt и Schulaufsicht округа — снимок config/schulamt.json, роль каждого — пересказ цитаты SenBJF. */
+function officesBlock(bezirke: string[]): string {
+  let s: ReturnType<typeof schulamt>;
+  try {
+    s = schulamt();
+  } catch (e) {
+    // испорченный снимок не должен стоить отчёта после полного прогона браузера — тогда без блока
+    console.warn(`config/schulamt.json: не читается (${(e as Error).message.split('\n')[0]}) — отчёт без Schulamt`);
+    return '';
+  }
+  const office = (title: string, o: { url: string; address: string | null; email: string | null }) =>
+    `<p>${title}: ${[o.address ? esc(o.address) : '<span class="nd">н/д — адреса нет на странице</span>', o.email && `<a href="mailto:${esc(o.email)}">${esc(o.email)}</a>`, link(o.url, 'berlin.de')].filter(Boolean).join(' · ')}</p>`;
+  const rows = bezirke.map((b) => {
+    const e = s.bezirke[b];
+    if (!e) return `<p class="nd">н/д — нет Schulamt округа «${esc(b)}» в config/schulamt.json</p>`;
+    return office(`🏛 <b>Schulamt ${esc(b)}</b>`, e.schulamt) + office(`🔎 <b>Schulaufsicht ${esc(b)}</b>`, e.schulaufsicht);
+  });
+  if (!rows.length) return '';
+  return `<div class="offices">
+    <p class="meta">${esc(s.roles.schulamt.summaryRu)} ${esc(s.roles.schulaufsicht.summaryRu)} <small>${link(s.roles.schulamt.url, 'SenBJF')}, ${link(s.roles.schulaufsicht.url, 'SenBJF')}</small></p>
+    ${rows.join('')}
+    <small>Адреса и ящики — со страниц ведомств на ${esc(s.checkedAt)}, без имён и личных номеров: они на странице berlin.de.</small>
+  </div>`;
+}
+
 const SOURCE: Record<Context['items'][number]['source'], string> = { official: '', mirror: 'копия документа ведомства · ' };
 
 // что такой факт обычно значит для ребёнка — общий текст на тему, а не вывод о конкретной школе
@@ -331,6 +357,7 @@ ${contextBlock(facts.get(o.school.bsn) ?? null, o.data.profile.name || o.school.
   <span class="eyebrow">Einschulbereich ${esc(c.esb ?? '—')} · слой ${esc(r.esbLayer)} · отчёт от ${esc(r.generatedAt.slice(0, 10))}</span>
   <h1>${esc(main.data.profile.name || main.school.name)}</h1>
   <div class="meta">Адрес: <b>${esc(formatAddress(addr))}</b> (${esc(addr.bezirk)})${r.input.raw ? ` · ввод: «${esc(r.input.raw)}»` : ''}</div>
+  ${officesBlock([addr.bezirk])}
 </header>
 
 ${st.warn ? `<p class="warn">⚠️ ${esc(st.text)}${c.status === 'joint' ? `: ${c.schools.map((s) => `${esc(s.name)} (${esc(s.bsn)})`).join(', ')}` : ''}.</p>` : `<p class="meta">${esc(st.text)}.</p>`}
@@ -453,6 +480,8 @@ details img { display: block; margin-top: 8px; max-width: 100%; height: auto; }
 .zone-map .label { font: 700 20px var(--display); text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
 .zuzug ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; }
 .zuzug p { margin: 8px 0 0; }
+.offices { display: grid; gap: 6px; font-size: .875rem; }
+.offices p { margin: 0; }
 .plz-zones { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
 @media (max-width: 560px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } }
 </style>
@@ -677,6 +706,7 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null, bas
   <span class="eyebrow">Поиск по ${r.input.ortsteil ? 'району' : 'PLZ'} · слой ${esc(r.esbLayer)} · отчёт от ${esc(r.generatedAt.slice(0, 10))}</span>
   <h1>Школы — ${esc(plzTitle(r.input))}</h1>
   <div class="meta">${where} в реестре: <b>${r.addresses}</b> · зон Einschulbereich: <b>${r.zones.length}</b></div>
+  ${officesBlock([...new Set(r.schools.map((s) => s.school.bezirk))])}
 </header>
 
 ${

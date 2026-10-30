@@ -35,6 +35,8 @@
 
 В обоих отчётах есть свёрнутый блок «🧳 Переезд в Берлин посреди учебного года»: как Schulamt даёт место и что детей до 7 лет без немецкого берут сразу в обычный класс. Это цитаты SenBJF из `config/zuzug.json`, `canary` сверяет их с документами.
 
+В шапке обоих отчётов — куда обращаться: 🏛 Schulamt (округ, распределяет места) и 🔎 Schulaufsicht (Senat, надзор и жалобы) округа адреса, в отчёте по PLZ — каждого округа школ. Адрес, общий ящик и ссылка — со страниц ведомств из `config/schulamt.json`, без имён и личных номеров; `canary` сверяет их со страницами. Нет адреса на странице ведомства — «н/д», своей страницы Schulaufsicht у округа нет — ссылка на общую страницу SenBJF.
+
 <details>
 <summary>🏫 <b>Пример: отчёт по адресу</b> — <code>/school Ruppiner Straße 47, 10115</code></summary>
 
@@ -157,17 +159,20 @@ flowchart TD
         SN["startchancen.ts<br/>снимок config/startchancen.json"]
         CX["context.ts<br/>скачать источник · сверить цитату, дату, школу, период"]
         ZU["zuzug.ts<br/>снимок config/zuzug.json"]
+        SA["schulamt.ts<br/>снимок config/schulamt.json"]
         R["report.ts<br/>result.json → report.html"]
         G --> PT --> E --> R
         E --> SC --> R
         SN --> R
         CX --> R
         ZU --> R
+        SA --> R
     end
 
     W[("gdi.berlin.de WFS<br/>adressen_berlin · esb текущего уч. года · schulen")] --> G
     BM[("sgx.geodatenzentrum.de<br/>basemap.de WMS — подложка карты")] --> G
     Z[("berlin.de SenBJF<br/>переезд посреди уч. года")] -.->|"сверка в canary"| ZU
+    O[("berlin.de · страницы округов<br/>Schulamt и Schulaufsicht")] -.->|"сверка в canary"| SA
     B[("bildung.berlin.de<br/>Schulporträt")] --> PT
     M[("berlin.de<br/>карта школ Startchancen (KML)")] -.->|"update:startchancen · сверка в canary"| SN
 
@@ -236,6 +241,7 @@ flowchart TD
 | `src/startchancen.ts` | школа в программе Startchancen — по снимку `config/startchancen.json` |
 | `src/context.ts` | факты из официальных источников — подробнее ниже |
 | `src/zuzug.ts` | блок «Переезд посреди учебного года» по снимку `config/zuzug.json` |
+| `src/schulamt.ts` | Schulamt и Schulaufsicht округа в шапке отчёта по снимку `config/schulamt.json` (12 округов) |
 | `src/report.ts` | HTML-отчёт |
 | `config/config.json` | число лет, соседей, адресов; адрес для canary; окно и лимиты фактов `context`; `esbOverrides`, `schoolsWithoutZone` |
 | `.claude/skills/school/SKILL.md`, `.claude/skills/school-plz/SKILL.md` | что делает Claude по `/school` и `/school-plz` |
@@ -256,7 +262,7 @@ flowchart TD
 | `npm run plz -- --plz 10439 \| --ortsteil Friedenau [--street "…"]` | все зоны PLZ и/или района → `out/plz-…/` или `out/ortsteil-…/` |
 | `npm run plz -- --input plz-input.json` | до 5 запросов `{ "queries": [{ "plz"?, "ortsteil"?, "street"? }, …] }` → массив сводок; сбой одного не останавливает остальные, повтор — `skipped` |
 | `npm run context -- --dir out/<адрес>` | `context.draft.json` → проверка по документам → `context.json` и заново `report.html`; `plz-…` / `ortsteil-…` — по каждой школе зон, до 3 фактов на школу |
-| `npm run canary` | эталонный адрес проходит весь путь, при поломке сайта — подстраница и поле; сверяет снимки Startchancen и `config/zuzug.json` (официальный источник, дословная цитата, дата документа), `esbOverrides` и `schoolsWithoutZone` — со слоем зон и реестром школ |
+| `npm run canary` | эталонный адрес проходит весь путь, при поломке сайта — подстраница и поле; сверяет снимки Startchancen, `config/zuzug.json` (официальный источник, дословная цитата, дата документа) и `config/schulamt.json` (адрес и ящик на странице ведомства, запись у каждого округа реестра), `esbOverrides` и `schoolsWithoutZone` — со слоем зон и реестром школ |
 | `npm run update:startchancen` | перезаписать снимок Startchancen (когда `canary` сказал, что список изменился) и закоммитить |
 | `npm run preflight` | доступны ли критичные источники; `lookup` и `canary` проверяют сами и при сбое не запускаются (exit code 2) |
 | `npm test` | юнит-тесты на сохранённом HTML, без сети |
