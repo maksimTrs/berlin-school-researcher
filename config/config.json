@@ -16,7 +16,7 @@
     "maxItems": 5,
     "plzMaxItemsPerSchool": 3,
     "maxPerCategory": 2,
-    "officialSources": ["berlin.de/ba-", "berlin.de/sen/", "berlin.de/schulbau/aktuelles/20", "parlament-berlin.de"],
+    "officialSources": ["berlin.de/ba-", "berlin.de/sen/", "berlin.de/schulbau/aktuelles/20", "parlament-berlin.de", "www.bildung.berlin.de/Schulverzeichnis/DokLoader.aspx"],
     "mirrorHosts": ["gruene-fraktion-ts.de"]
   }
 }

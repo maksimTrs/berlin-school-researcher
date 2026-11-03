@@ -1,0 +1,53 @@
+{
+  "documents": [
+    {
+      "kind": "investment",
+      "bezirk": "Charlottenburg-Wilmersdorf",
+      "url": "https://www.berlin.de/ba-charlottenburg-wilmersdorf/politik/bezirksamt/beschluesse/6-wahlperiode/2025/150_ba_n_bproto_250225_anlage-1.pdf",
+      "title": "Anmeldungen des Bezirks Charlottenburg-Wilmersdorf zum Investitionsprogramm 2025 bis 2029",
+      "published": "2025-02-25",
+      "decision": "https://www.berlin.de/ba-charlottenburg-wilmersdorf/politik/bezirksamt/beschluesse/6-wahlperiode/2025/artikel.1555161.php"
+    },
+    {
+      "kind": "catchment",
+      "bezirk": "Charlottenburg-Wilmersdorf",
+      "url": "https://www.berlin.de/ba-charlottenburg-wilmersdorf/politik/bezirksamt/beschluesse/6-wahlperiode/2025/164_ba_n_bproto_250617_vzb-210_anlage-1.pdf",
+      "title": "Zuschneidung der Einschulungsbereiche – Zusammenfassung",
+      "published": "2025-06-17",
+      "decision": "https://www.berlin.de/ba-charlottenburg-wilmersdorf/politik/bezirksamt/beschluesse/6-wahlperiode/2025/artikel.1585530.php",
+      "layer": "esb_2026",
+      "items": [
+        {
+          "bsn": ["04G15", "04G14"],
+          "category": "capacity",
+          "quote": "Parallel besteht ein rechnerisches Versorgungsdefizit nördlich der Heerstraße in den Einschulungsbereichen der Charles-Dickens-Grundschule (04G15) und der Reinhold-Otto-Grundschule (04G14).",
+          "summaryRu": "Расчётный дефицит мест (rechnerisches Versorgungsdefizit) в зоне школы, севернее Heerstraße"
+        },
+        {
+          "bsn": ["04G21"],
+          "category": "capacity",
+          "quote": "Verkleinerung des Einzugsgebiets der Halensee-Grundschule (04G21), dass aktuell ein rechnerisches Versorgungsdefizit ausweist.",
+          "summaryRu": "Расчётный дефицит мест (rechnerisches Versorgungsdefizit) в зоне школы; зону уменьшили"
+        },
+        {
+          "bsn": ["04G23"],
+          "category": "capacity",
+          "quote": "dass die Alt-Schmargendorf-Grundschule (04G23) über ein rechnerisches Versorgungsdefizit verfügt",
+          "summaryRu": "Расчётный дефицит мест (rechnerisches Versorgungsdefizit) в зоне школы"
+        },
+        {
+          "bsn": ["04G20"],
+          "category": "capacity",
+          "quote": "Gleichzeitig besteht bei der angrenzenden Katharina-Heinroth-Grundschule (04G20) ein großes rechnerisches Versorgungsdefizit.",
+          "summaryRu": "Большой расчётный дефицит мест (großes rechnerisches Versorgungsdefizit) в зоне школы"
+        },
+        {
+          "bsn": ["04S07"],
+          "category": "catchment",
+          "quote": "die Comenius-Schule (04S07) als inklusive Schwerpunktschule mit 3 Regelzügen im Grundschulbereich, für die bisher kein Einschulungsbereich eingerichtet ist.",
+          "summaryRu": "Inklusive Schwerpunktschule: 3 обычные параллели (Regelzüge) в начальной школе; своей зоны до этого решения не было"
+        }
+      ]
+    }
+  ]
+}

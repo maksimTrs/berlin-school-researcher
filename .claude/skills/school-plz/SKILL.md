@@ -55,10 +55,10 @@ argument-hint: <PLZ | Ortsteil | Straße, PLZ | Straße, Ortsteil>[; <…> ...]
 По **каждой** школе из `zones[].schools` сводки (без повторов; школы из `warnings` — без данных, их пропусти) — правила отбора как в шаге 3a skill `/school`
 (`.claude/skills/school/SKILL.md`): только документы ведомств, только конкретное изменение в этой школе, тот же период.
 Отчёт по PLZ — прикидка до точного адреса, поэтому на школу — **3 факта** (`context.plzMaxItemsPerSchool`). Если фактов больше, код оставит важные:
-`capacity` → `catchment` → `construction` → `welcome_classes` → `afterschool` → `leadership` (факт с `contradicts` — всегда первым) (`PRIORITY` в `src/context.ts`).
+`capacity` → `catchment` → `concerns` → `staffing` → `strengths` → `welcome_classes` → `afterschool` → `leadership` → `construction` (факт с `contradicts` — всегда первым) (`PRIORITY` в `src/context.ts`). Темы и слова поиска — как в `/school`; отчёт Schulinspektion — `schools[].data.inspections` в `result.json`, сайт школы — `schools[].school.web`, только для `strengths`.
 
 **Как искать быстро** (школ бывает 10+):
-1. Сначала **один раз на округ**: `Bezirksamt <Bezirk> Pressemitteilung <год> Einschulungsbereich`, `… Grundschule Erweiterung`, `Newsletter <район> <год>` — один документ часто называет несколько школ.
+1. Сначала **один раз на округ**: `Bezirksamt <Bezirk> Pressemitteilung <год> Einschulungsbereich`, `… Grundschule Schulplatzmangel`, `Newsletter <район> <год>` — один документ часто называет несколько школ.
 2. Страница `Schulorganisation` / `Schulamt` округа: у части округов там официальный **справочник адресов зон** (PDF) — им проверяй зоны `ambiguous`, `no_school_in_zone`, `code_mismatch` и `matched_by_code`.
    Справочник называет общую зону нескольких школ («Gemeinsamer ESB der … und der …») — предложи пользователю поправку `esbOverrides` списком школ с цитатой; сам конфиг без согласия не меняй.
 3. По школам — по 2–3 названия в одном запросе (`"A-Grundschule" OR "B-Grundschule" <район> <год>`), а не запрос на школу.
@@ -76,6 +76,8 @@ argument-hint: <PLZ | Ortsteil | Straße, PLZ | Straße, Ortsteil>[; <…> ...]
 
 `queries` — дословно выполненные запросы (общие на округ — в запись каждой школы, к которой они относятся). Минимум источников — как в `/school`: пресс-релизы Bezirksamt, pardok, BVV округа.
 Пустой `items` — нормальный итог: школа проверена, сообщений не найдено. `contradicts` в отчёте по PLZ не показывается — ставь `null`.
+
+Документы округа из `config/district.json` код добавляет каждой школе сам — как в `/school`, в черновик их не пиши.
 
 `npm run context -- --dir out/<папка>` — код сверяет каждый источник и пишет `context.json` и заново `report.html`.
 stdout — `schools[]` с `items` и `rejected` по каждой школе и `skipped` — школы черновика, которых нет среди школ с данными. Причины отклонения — как в `/school`, не обходи их.

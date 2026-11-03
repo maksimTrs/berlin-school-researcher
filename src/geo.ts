@@ -167,6 +167,7 @@ export type School = {
   bsn: string;
   name: string;
   schulart: string;
+  schultyp?: string; // «Schule mit sonderpädagogischem Förderschwerpunkt» — подробнее schulart; в старых result.json нет
   address: string;
   ortsteil: string;
   bezirk: string;
@@ -203,6 +204,7 @@ export async function primarySchools(api: APIRequestContext): Promise<School[]> 
       bsn: p.bsn,
       name: p.schulname,
       schulart: p.schulart,
+      schultyp: p.schultyp,
       address: `${p.strasse} ${p.hausnr}, ${p.plz} Berlin`,
       ortsteil: p.ortsteil,
       bezirk: p.bezirk,

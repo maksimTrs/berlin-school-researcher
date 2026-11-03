@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { config } from './config.js';
-import { CATEGORIES, longTerm, type Category, type Context, type PlzContext } from './context.js';
+import { CATEGORIES, longTerm, PRIORITY, type Category, type Context, type PlzContext } from './context.js';
 import { fehlGrades, KEY_FIGURES, keyFigure, PAGES, type PageKey } from './extract.js';
 import { formatAddress, type Candidate, type Catchment, type ExcludedByOrtsteil, type School, type ZoneShare } from './geo.js';
 import type { SchoolData, YearPage } from './portrait.js';
@@ -224,14 +224,14 @@ function officesBlock(bezirke: string[]): string {
   </div>`;
 }
 
-const SOURCE: Record<Context['items'][number]['source'], string> = { official: '', mirror: 'копия документа ведомства · ' };
+const SOURCE: Record<Context['items'][number]['source'], string> = { official: '', mirror: 'копия документа ведомства · ', school: 'со слов школы · ' };
 
 // что такой факт обычно значит для ребёнка — общий текст на тему, а не вывод о конкретной школе
 const MEANING: Record<Category, string> = {
   capacity:
     'Школа заполнена сверх расчёта. Обычно под классы занимают кабинеты или комнаты продлёнки, классы полнее. Ребёнка, который приходит не к началу учебного года, могут направить в другую школу, где есть место.',
   construction:
-    'Стройка идёт годами: шум, временные модули, закрытая часть двора. После неё — больше комнат и новое оснащение. Важно, какой этап придётся на годы ребёнка в школе.',
+    'Плановая стройка или ремонт — обычное дело для берлинских школ. На время работ бывают модули и закрытая часть двора, после — обновлённое здание. Важно, на какие годы учёбы ребёнка это придётся.',
   welcome_classes:
     'Willkommensklasse — отдельная группа для детей без немецкого до перехода в обычный класс. Кого и в какой класс берут при переезде, кто назначает школу — в блоке «Переезд в Берлин посреди учебного года» (цитаты SenBJF).',
   catchment:
@@ -240,12 +240,23 @@ const MEANING: Record<Category, string> = {
     'Новый директор или вакансия: в первые годы школа может менять порядки — продлёнку, профиль, организацию классов. Само по себе это не плюс и не минус.',
   afterschool:
     'Hort — продлёнка после уроков. Если у неё нет своих комнат, дети остаются в тех же классах, где учились утром, а мест в продлёнке может быть меньше, чем желающих.',
+  staffing:
+    'Нехватка учителей или замены по часам обычно означают больше отмен и уроков у заменяющих. Цифры за годы — в маркере 🟢🟡🔴 и в таблице ниже.',
+  concerns:
+    'Проблема, которую признало ведомство, — например, по итогам Schulinspektion или в ответе на запрос. Важно, что с ней делают и к какому сроку: обычно это есть в том же документе.',
+  strengths:
+    'То, что школа даёт сверх обязательного: награды, программы, профиль. Есть ли в такой группе место для нового ученика, уточняют в школе.',
 };
 
 /** Строки фактов и пояснение по их темам; цитаты — только в context.json. Дальние планы стройки — короткой строкой в конце. */
 function factsList(ctx: Context): string {
-  const near = ctx.items.filter((i) => !longTerm(i, ctx.window.plannedTo));
-  const far = ctx.items.filter((i) => longTerm(i, ctx.window.plannedTo));
+  // плановый ремонт по заявке округа — не сигнал сам по себе: свёрнутой строкой в конце, без пояснения темы
+  const repairs = ctx.items.filter((i) => i.rule === 'district' && i.category === 'construction');
+  const rest = ctx.items.filter((i) => !repairs.includes(i));
+  // дальний план — только у стройки; пристройка из плана (тема «Места») остаётся рядом с дефицитом мест
+  const isFar = (i: Context['items'][number]) => i.category === 'construction' && longTerm(i, ctx.window.plannedTo);
+  const near = rest.filter((i) => !isFar(i)).sort((a, b) => PRIORITY[a.category] - PRIORITY[b.category] || b.published.localeCompare(a.published));
+  const far = rest.filter(isFar);
   const source = (i: Context['items'][number]) => `<small>${esc(SOURCE[i.source])}${link(i.url, i.host)}</small>`;
   return `${
     near.length
@@ -261,30 +272,50 @@ function factsList(ctx: Context): string {
       : ''
   }${
     far.length
-      ? `<p class="far-plans"><b>🗓 Дальние планы</b> — стройка начнётся позже ${esc(ctx.window.plannedTo)}, может прийтись на годы учёбы:</p>
+      ? `<p class="far-plans"><b>🗓 Дальние планы</b> — позже ${esc(ctx.window.plannedTo)}, могут прийтись на годы учёбы:</p>
     <ul>${far.map((i) => `<li><b>${esc(i.planned!)}</b> · ${esc(i.summaryRu)} ${source(i)}</li>`).join('')}</ul>`
+      : ''
+  }${
+    repairs.length
+      ? `<details><summary>🛠 Плановый ремонт по заявке округа в инвестпрограмму (${repairs.length})</summary>
+    <ul>${repairs.map((i) => `<li><b>${esc(i.planned ?? '')}</b> · ${esc(i.summaryRu)} ${source(i)}</li>`).join('')}</ul></details>`
       : ''
   }`;
 }
 
 const checkedNote = (ctx: Context) =>
-  `<p class="note">Проверено ${esc(ctx.checkedAt.slice(0, 10))}: публикации с ${esc(ctx.window.publishedFrom)} и планы до ${esc(ctx.window.plannedTo)}${ctx.window.constructionTo ? ` (стройка — до ${esc(ctx.window.constructionTo)})` : ''}, только официальные источники, каждый факт сверен с документом.</p>`;
+  `<p class="note">Проверено ${esc(ctx.checkedAt.slice(0, 10))}: публикации с ${esc(ctx.window.publishedFrom)} и планы до ${esc(ctx.window.plannedTo)}${ctx.window.constructionTo ? ` (стройка — до ${esc(ctx.window.constructionTo)})` : ''}, ${ctx.items.some((i) => i.source === 'school') ? 'официальные источники и сайт самой школы (помечено «со слов школы»)' : 'только официальные источники'}, каждый факт сверен с документом.${
+    ctx.items.some((i) => i.rule === 'district')
+      ? ' Документы округа (инвестплан, решение о зонах) код берёт всегда: строку плана — пока не прошёл год окончания стройки, решение о зонах — пока действует слой зон, под который оно принято.'
+      : ''
+  }</p>`;
+
+// context.json без поиска Claude (lookup/plz из терминала, школа без черновика) — только документы округа
+const searched = (ctx: Context) => ctx.queries.length > 0;
+const NOT_SEARCHED = '<p class="note">Веб-поиск по школе не проводился: показаны только документы округа, которые код проверяет при каждом прогоне.</p>';
+
+// документ округа (src/district.ts) не скачался — его строк по школе нет, и «не найдено» было бы неправдой
+const districtGap = (ctx: Context) =>
+  ctx.rejected
+    .filter((r) => r.reason.startsWith('документ округа не загрузился'))
+    .map((r) => `<p class="warn">⚠️ Документ округа не проверен — не загрузился: ${link(r.url, r.summaryRu)}. Повторите прогон позже: сайт мог временно ограничить запросы.</p>`)
+    .join('');
 
 /** Раздел фактов о закреплённой школе в отчёте по адресу. */
 function contextBlock(ctx: Context | null, school?: string): string {
   if (!ctx) return '';
   return `<section class="context">
   <h2>Что известно из официальных источников${school ? ` — ${esc(school)}` : ''}</h2>
-  ${ctx.items.length ? factsList(ctx) : '<p>Сообщений о школе за этот период не найдено.</p>'}
-  ${checkedNote(ctx)}
+  ${ctx.items.length ? factsList(ctx) : searched(ctx) ? '<p>Сообщений о школе за этот период не найдено.</p>' : ''}${districtGap(ctx)}
+  ${searched(ctx) ? checkedNote(ctx) : NOT_SEARCHED}
 </section>`;
 }
 
 /** Факты о школе в отчёте по PLZ — внутри блока школы, без своего заголовка раздела. */
 function plzFacts(ctx: Context | undefined): string {
   if (!ctx) return '';
-  if (!ctx.items.length) return '<p class="note">Официальных сообщений о школе за период не найдено.</p>';
-  return `<div class="context"><p><b>Что известно из официальных источников</b></p>${factsList(ctx)}</div>`;
+  if (!ctx.items.length) return `${searched(ctx) ? '<p class="note">Официальных сообщений о школе за период не найдено.</p>' : ''}${districtGap(ctx)}`;
+  return `<div class="context"><p><b>Что известно из официальных источников</b></p>${factsList(ctx)}${districtGap(ctx)}${searched(ctx) ? '' : NOT_SEARCHED}</div>`;
 }
 
 /** Поле профиля, которое опровергает свежее официальное сообщение, — с пометкой рядом. */
@@ -294,6 +325,9 @@ function profileValue(label: string, value: string, ctx: Context | null): string
     .map((i) => `<br><small class="bad">⚠️ Возможно, устарело: ${esc(i.published)} — ${esc(i.summaryRu)}</small>`)
     .join('')}`;
 }
+
+/** Тип школы из Schulverzeichnis: по нему видно, что 04S07 — школа с Förderschwerpunkt, хотя закреплена за зоной. */
+const schoolType = (s: Pick<School, 'schultyp'>) => (s.schultyp ? `<p class="meta">Тип по Schulverzeichnis: ${esc(s.schultyp)}</p>` : '');
 
 const ROLE: Record<SchoolEntry['role'], string> = {
   main: 'закреплённая',
@@ -320,7 +354,7 @@ export function renderReport(r: AddressResult, ctx: Context | PlzContext | null 
     .map(
       (o) => `<section>
   <h2>Тоже закреплённая школа общей зоны · ${esc(o.school.bsn)}</h2>
-  <p><b>${esc(o.data.profile.name || o.school.name)}</b></p>
+  <p><b>${esc(o.data.profile.name || o.school.name)}</b></p>${schoolType(o.school)}
   <div>${schoolLinks(o.school, o.data, addr, false)}</div>
   <p class="meta">Расстояние от адреса по прямой: ${o.school.distanceM ?? '—'} м</p>
   ${startchancenNote(o.school)}
@@ -382,7 +416,7 @@ ${
 }
 
 <section>
-  <h2>${MAIN_TITLE[c.status]} · ${esc(main.school.bsn)}</h2>
+  <h2>${MAIN_TITLE[c.status]} · ${esc(main.school.bsn)}</h2>${schoolType(main.school)}
   <div>${schoolLinks(main.school, main.data, addr, true)}</div>
   <p class="meta">Расстояние от адреса по прямой: ${main.school.distanceM ?? '—'} м</p>
   ${startchancenNote(main.school)}
@@ -684,7 +718,7 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null, bas
   const schoolSections = r.schools
     .map(
       ({ school: s, data: d }) => `<section class="metric" id="school-${esc(s.bsn)}">
-        <h3>${esc(schoolName(s))} · ${esc(s.bsn)}</h3>
+        <h3>${esc(schoolName(s))} · ${esc(s.bsn)}</h3>${schoolType(s)}
         <div>${[link(d.portraitUrl, 'Schulporträt'), link(maps.place(s), 'Google Maps')].join(' · ')}</div>
         ${startchancenNote(s)}
         ${scoreBlock(d, (d.pages.vunt ?? []).map((y) => y.year))}

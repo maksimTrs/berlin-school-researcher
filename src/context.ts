@@ -20,15 +20,29 @@ export const CATEGORIES = {
   catchment: 'Школьная зона',
   leadership: 'Руководство школы',
   afterschool: 'Продлёнка (Hort)',
+  staffing: 'Учителя и уроки',
+  concerns: 'Проблемы школы',
+  strengths: 'Сильные стороны',
 } as const;
 export type Category = keyof typeof CATEGORIES;
 
 /**
- * Что важнее семье, когда фактов больше лимита: есть ли место, чья это зона, стройка, затем Willkommensklassen —
- * для детей с 3 класса это главное, а детей до 7 лет по правилам SenBJF берут в обычный класс (config/zuzug.json);
- * продлёнка и руководство — последними.
+ * Что важнее семье, когда фактов больше лимита: есть ли место и чья это зона, признанные проблемы, учителя,
+ * сильные стороны, затем Willkommensklassen — для детей с 3 класса это главное, а детей до 7 лет по правилам SenBJF
+ * берут в обычный класс (config/zuzug.json); продлёнка, руководство и плановая стройка — последними: стройка по плану
+ * сама по себе не проблема, проблема — когда она добавляется к нехватке мест (это тема capacity).
  */
-export const PRIORITY: Record<Category, number> = { capacity: 0, catchment: 1, construction: 2, welcome_classes: 3, afterschool: 4, leadership: 5 };
+export const PRIORITY: Record<Category, number> = {
+  capacity: 0,
+  catchment: 1,
+  concerns: 2,
+  staffing: 3,
+  strengths: 4,
+  welcome_classes: 5,
+  afterschool: 6,
+  leadership: 7,
+  construction: 8,
+};
 
 const DraftItem = z
   .object({
@@ -69,7 +83,8 @@ export const ContextSchema = z.object({
   checkedAt: z.string(),
   window: z.object({ publishedFrom: z.string(), plannedTo: z.string(), constructionTo: z.string().optional() }), // в старых context.json constructionTo нет
   queries: z.array(z.string()),
-  items: z.array(DraftItem.extend({ host: z.string(), source: z.enum(['official', 'mirror']) })), // от новых к старым
+  // rule: 'district' — строка документа округа (config/district.json): свой срок, не окно публикаций; в старых context.json поля нет
+  items: z.array(DraftItem.extend({ host: z.string(), source: z.enum(['official', 'mirror', 'school']), rule: z.literal('district').optional() })), // от новых к старым
   rejected: z.array(RejectedSchema),
 });
 export const PlzContextSchema = z.object({ schools: z.array(ContextSchema) });
@@ -91,6 +106,7 @@ export function normalize(s: string): string {
   return s
     .normalize('NFKC')
     .replace(/­/g, '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '') // невидимые управляющие символы в вёрстке сайта («Spanisch-\u0015Muttersprachler»)
     .replace(/(\p{Ll})-[ \t]*\n\s*(\p{Ll})/gu, '$1$2') // «Auswir-\nkungen»
     .replace(/-[ \t]*\n\s*/g, '-') // «Tempelhof-\nSchöneberg»
     .replace(/[„“”«»"]/g, '"')
@@ -249,15 +265,37 @@ const DATE_FORMATS: [RegExp, (m: RegExpExecArray) => [number, number, number | n
  * Дата плана дальше в тексте («Fertigstellung im August 2026») — не дата документа.
  */
 export function isDocumentDate(header: string, published: string): boolean {
-  const first = DATE_FORMATS.map(([re, parse]) => {
-    const m = re.exec(header);
-    return m ? { at: m.index, date: parse(m) } : null;
-  })
-    .filter((f) => f !== null)
-    .sort((a, b) => a.at - b.at)[0];
+  const first = firstDate(header);
   const [y, m, d] = published.split('-').map(Number);
-  return !!first && first.date[0] === y && first.date[1] === m && (!d || first.date[2] === d);
+  return !!first && first[0] === y && first[1] === m && (!d || first[2] === d);
 }
+
+/** Первая дата в тексте — [год, месяц, день | null] или null. */
+export function firstDate(header: string): [number, number, number | null] | null {
+  return (
+    DATE_FORMATS.map(([re, parse]) => {
+      const m = re.exec(header);
+      return m ? { at: m.index, date: parse(m) } : null;
+    })
+      .filter((f) => f !== null)
+      .sort((a, b) => a.at - b.at)[0]?.date ?? null
+  );
+}
+
+/**
+ * Отчёт Schulinspektion на bildung.berlin.de («DokLoader.aspx?Schulinspektion=04G04_B_20251201_1082.pdf»): в шапке PDF даты нет,
+ * а имя школы в тексте пишут без диакритики («Joan-Miro»). Дата публикации и школа — из имени файла, как на Schulporträt.
+ */
+export function inspectionReport(url: string): { bsn: string; published: string } | null {
+  const u = new URL(url);
+  const m = /^(\d{2}[A-Z]\d{2})_[A-Z]_(\d{4})(\d{2})(\d{2})_\d+\.pdf$/.exec(u.searchParams.get('Schulinspektion') ?? '');
+  return u.hostname === 'www.bildung.berlin.de' && u.pathname === '/Schulverzeichnis/DokLoader.aspx' && m ? { bsn: m[1], published: `${m[2]}-${m[3]}-${m[4]}` } : null;
+}
+
+const bareHost = (url: string) => new URL(url).hostname.replace(/^www\./, '');
+
+/** Сайт самой школы (поле internet в Schulverzeichnis) — только для темы «Сильные стороны», с пометкой «со слов школы». */
+export const onSchoolSite = (url: string, web: string | null | undefined) => !!web && /^https?:/.test(web) && bareHost(url) === bareHost(web);
 
 const numbers = (s: string) => (s.match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => n.replace(',', '.'));
 
@@ -332,9 +370,9 @@ export function sourceKind(url: string): 'official' | 'mirror' | null {
   return onSource(u, config.context.officialSources) ? 'official' : onSource(u, config.context.mirrorHosts) ? 'mirror' : null;
 }
 
-/** Переадресации — вручную: каждый шаг должен оставаться в списке источников, а не уходить на любой адрес. */
+/** Переадресации — вручную: каждый шаг должен оставаться в списке источников (или на сайте школы — allow), а не уходить на любой адрес. */
 export const fetchFollowing =
-  (api: Pick<APIRequestContext, 'get'>) =>
+  (api: Pick<APIRequestContext, 'get'>, allow: (url: string) => boolean = () => false) =>
   async (url: string): Promise<Fetched> => {
     let current = url;
     for (let hop = 0, waits = 0; hop <= 5; hop++) {
@@ -349,10 +387,13 @@ export const fetchFollowing =
       const location = res.status() >= 300 && res.status() < 400 ? res.headers()['location'] : undefined;
       if (!location) return { url: current, status: res.status(), contentType: res.headers()['content-type'] ?? '', body: await res.body() };
       current = new URL(location, current).toString();
-      if (!sourceKind(current)) return { url: current, status: 200, contentType: '', body: Buffer.alloc(0) }; // verifyDraft отклонит
+      if (!sourceKind(current) && !allow(current)) return { url: current, status: 200, contentType: '', body: Buffer.alloc(0) }; // verifyDraft отклонит
     }
     throw new Error('больше 5 переадресаций');
   };
+
+/** В context.json есть поиск Claude хотя бы по одной школе (queries) — тогда его обновляет только npm run context. */
+export const claudeSearched = (ctx: Context | PlzContext | null) => !!ctx && ('schools' in ctx ? ctx.schools : [ctx]).some((c) => c.queries.length > 0);
 
 /** Испорченный context.json не должен стоить отчёта после полного прогона браузера — тогда без блока фактов. */
 export function readContext<T>(dir: string, schema: { parse: (v: unknown) => T }): T | null {
@@ -386,11 +427,12 @@ const isAuthorityAnswer = (text: string) => {
 
 export async function verifyDraft(
   draft: Draft,
-  school: Pick<School, 'bsn' | 'name'>,
+  school: Pick<School, 'bsn' | 'name'> & Partial<Pick<School, 'web'>>,
   profile: Profile,
   fetchUrl: (url: string) => Promise<Fetched>,
   now = new Date(),
   maxItems = config.context.maxItems,
+  district: { items: ContextItem[]; rejected: Rejected[]; urls: string[] } = { items: [], rejected: [], urls: [] },
 ): Promise<Context> {
   if (draft.bsn !== school.bsn) throw new Error(`context.draft.json для ${draft.bsn}, а закреплённая школа — ${school.bsn}`);
   const keys = schoolKeys(school);
@@ -409,16 +451,32 @@ export async function verifyDraft(
     return texts.get(url)!;
   };
 
-  const ok: ContextItem[] = [];
-  const rejected: Rejected[] = [];
+  // строки документов округа (src/district.ts) уже сверены кодом; тот же документ в черновике — повтор с чужим сроком
+  const ok: ContextItem[] = [...district.items];
+  const rejected: Rejected[] = [...district.rejected];
   for (const item of draft.items) {
     const reject = (reason: string) => rejected.push({ url: item.url, summaryRu: item.summaryRu, reason });
-    const kind = sourceKind(item.url);
-    if (!kind) {
-      reject(`${new URL(item.url).hostname}${new URL(item.url).pathname}: не в списке официальных источников (config.context)`);
+    if (district.urls.includes(item.url.replace(/[?#].*$/, ''))) {
+      reject('документ округа из config/district.json: его строки по школе берёт код');
       continue;
     }
-    if (isListing(item.url)) {
+    // сайт школы — только о сильных сторонах и только её собственный домен из Schulverzeichnis
+    const kind = sourceKind(item.url) ?? (item.category === 'strengths' && onSchoolSite(item.url, school.web) ? 'school' : null);
+    if (!kind) {
+      reject(`${new URL(item.url).hostname}${new URL(item.url).pathname}: не в списке официальных источников (config.context)${onSchoolSite(item.url, school.web) ? '; сайт школы — только для темы strengths' : ''}`);
+      continue;
+    }
+    const inspection = inspectionReport(item.url);
+    if (inspection && inspection.bsn !== school.bsn) {
+      reject(`отчёт Schulinspektion другой школы (${inspection.bsn})`);
+      continue;
+    }
+    if (inspection && inspection.published !== item.published) {
+      reject(`отчёт Schulinspektion опубликован ${inspection.published} (имя файла), а не ${item.published}`);
+      continue;
+    }
+    // у сайта школы страница вроде «/profil/» — не список новостей; список — только главная
+    if (kind === 'school' ? new URL(item.url).pathname === '/' : isListing(item.url)) {
       reject('страница-список, а не документ: нужна ссылка на саму заметку');
       continue;
     }
@@ -443,11 +501,11 @@ export async function verifyDraft(
       reject(`источник не загрузился: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
       continue;
     }
-    if (sourceKind(page.final) !== kind) {
+    if (kind === 'school' ? !onSchoolSite(page.final, school.web) : sourceKind(page.final) !== kind) {
       reject(`переадресация на ${new URL(page.final).hostname}`);
       continue;
     }
-    if (isListing(page.final)) {
+    if (kind === 'school' ? new URL(page.final).pathname === '/' : isListing(page.final)) {
       reject('переадресация на страницу-список, а не документ');
       continue;
     }
@@ -465,12 +523,15 @@ export async function verifyDraft(
       reject('цитата из вопроса депутата, а не из ответа ведомства');
       continue;
     }
-    if (!mentionsSchool(page.text, at, keys)) {
+    // отчёт инспекции и сайт школы целиком о ней: школа — из имени файла / домена
+    if (!inspection && kind !== 'school' && !mentionsSchool(page.text, at, keys)) {
       reject('рядом с цитатой школа не названа');
       continue;
     }
-    if (!isDocumentDate(page.text.slice(0, HEADER), item.published)) {
-      reject(`первая дата в шапке документа — не ${item.published}`);
+    // у страницы сайта школы часто нет даты — тогда published — месяц проверки, и «свежесть» значит «есть на сайте сейчас»
+    const undated = kind === 'school' && !firstDate(page.text.slice(0, HEADER));
+    if (undated ? item.published !== monthOf(contextWindow(now).now) : !inspection && !isDocumentDate(page.text.slice(0, HEADER), item.published)) {
+      reject(undated ? `у страницы сайта школы нет даты — published должен быть месяцем проверки ${monthOf(contextWindow(now).now)}` : `первая дата в шапке документа — не ${item.published}`);
       continue;
     }
     if (item.planned && !numbers(item.quote).includes(item.planned.slice(0, 4))) {
@@ -490,10 +551,13 @@ export async function verifyDraft(
   for (const item of ok.sort((a, b) => rank(a) - rank(b) || b.published.localeCompare(a.published))) {
     const key = `${item.url}|${normalize(item.quote)}`;
     const reject = (reason: string) => rejected.push({ url: item.url, summaryRu: item.summaryRu, reason });
+    // факты документов округа — вне лимитов: иначе свежая находка Claude вытесняла бы строку плана, и отчёты по школе расходились бы
+    const counted = items.filter((i) => !i.rule);
     if (seen.has(key)) reject('повтор');
-    else if (items.filter((i) => i.category === item.category).length >= config.context.maxPerCategory)
+    else if (item.rule === 'district') items.push(item);
+    else if (counted.filter((i) => i.category === item.category).length >= config.context.maxPerCategory)
       reject(`лимит: не больше ${config.context.maxPerCategory} в категории`);
-    else if (items.length >= maxItems) reject(`лимит: не больше ${maxItems} фактов`);
+    else if (counted.length >= maxItems) reject(`лимит: не больше ${maxItems} фактов`);
     else items.push(item);
     seen.add(key);
   }

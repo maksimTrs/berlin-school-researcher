@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ContextSchema,
   Draft,
+  claudeSearched,
   PlzContextSchema,
   PlzDraft,
   fetchFollowing,
@@ -81,6 +82,7 @@ const pdf = (text: string) => {
 describe('normalize / findQuote', () => {
   it('PDF line-break hyphenation, quotes and dashes match the typed quote', () => {
     expect(normalize('Auswir-\nkungen in Tempelhof-\nSchöneberg „Raum“ – frei')).toBe('auswirkungen in tempelhof-schöneberg "raum" - frei');
+    expect(normalize('Spanisch-\u0015Muttersprachler. Die Escándalo\u0015Teamer')).toBe('spanisch-muttersprachler. die escándaloteamer'); // управляющие символы в HTML сайта школы
   });
 
   it('parts around «…» must come in order', async () => {
@@ -608,6 +610,65 @@ describe('report', () => {
     expect(renderReport(result)).not.toContain('своей зоны Einschulbereich');
   });
 
+  it('school type from Schulverzeichnis next to the school; old result.json without schultyp renders without the line', () => {
+    const comenius: School = { ...school, schultyp: 'Schule mit sonderpädagogischem Förderschwerpunkt' };
+    const html = renderReport({ ...result, schools: [{ ...result.schools[0], school: comenius }] });
+    expect(html).toContain('<p class="meta">Тип по Schulverzeichnis: Schule mit sonderpädagogischem Förderschwerpunkt</p>');
+    expect(renderReport(result)).not.toContain('Тип по Schulverzeichnis');
+  });
+
+  it('a district document fact says why it is older than the publication window', async () => {
+    const ctx = await verifyDraft(draft('07G32', []), BUERGEL, profile, fetchFixture, NOW);
+    const plan = { category: 'construction' as const, published: '2025-02-25', planned: '2030', url: PRESS_URL, quote: 'x'.repeat(30), summaryRu: 'Заявка округа в инвестпрограмму', contradicts: null, host: 'www.berlin.de', source: 'official' as const, rule: 'district' as const };
+    expect(renderReport(result, { ...ctx, items: [plan] })).toContain('Документы округа (инвестплан, решение о зонах) код берёт всегда');
+    expect(renderReport(result, ctx)).not.toContain('Документы округа');
+    // факт с сайта школы — и в пометке о проверке: не «только официальные источники»
+    expect(renderReport(result, { ...ctx, items: [{ ...plan, rule: undefined, category: 'strengths', source: 'school' }] })).toContain('официальные источники и сайт самой школы (помечено «со слов школы»)');
+    expect(renderReport(result, { ...ctx, items: [plan] })).toContain('только официальные источники');
+  });
+
+  it('district facts: an extension sits next to the deficit, planned renovation is one collapsed line without the topic note', async () => {
+    const ctx = await verifyDraft(draft('07G32', []), BUERGEL, profile, fetchFixture, NOW);
+    const base = { url: PRESS_URL, quote: 'x'.repeat(30), contradicts: null, host: 'www.berlin.de', source: 'official' as const, rule: 'district' as const };
+    const items = [
+      { ...base, category: 'construction' as const, published: '2025-02-25', planned: '2030', summaryRu: 'Заявка — Gesamtsanierung, окончание — 2030' },
+      { ...base, category: 'capacity' as const, published: '2025-02-25', planned: '2030', summaryRu: 'Заявка — Erweiterungsbau, окончание — 2030' },
+      { ...base, category: 'capacity' as const, published: '2025-06-17', planned: null, summaryRu: 'Дефицит мест в зоне школы' },
+    ];
+    const html = renderReport(result, { ...ctx, items });
+    expect(html).toMatch(/Дефицит мест в зоне школы[\s\S]*Erweiterungsbau, окончание — 2030[\s\S]*🛠 Плановый ремонт по заявке округа в инвестпрограмму \(1\)[\s\S]*Gesamtsanierung/);
+    expect(html).not.toContain('🗓 Дальние планы'); // пристройка из плана — не «дальний план», а рядом с дефицитом
+    expect(html).not.toContain('<b>Стройка и ремонт.</b>');
+  });
+
+  it('context.json without a Claude search (terminal lookup): district facts with "no web search", no "nothing found"', async () => {
+    const ctx = await verifyDraft({ bsn: '07G32', queries: [], items: [] }, BUERGEL, profile, fetchFixture, NOW);
+    const plan = { category: 'capacity' as const, published: '2025-02-25', planned: '2028', url: PRESS_URL, quote: 'x'.repeat(30), summaryRu: 'Заявка — Erweiterungsbau, окончание — 2028', contradicts: null, host: 'www.berlin.de', source: 'official' as const, rule: 'district' as const };
+    const html = renderReport(result, { ...ctx, items: [plan] });
+    expect(html).toContain('Веб-поиск по школе не проводился');
+    expect(html).not.toContain('каждый факт сверен с документом');
+    const empty = renderReport(result, ctx);
+    expect(empty).not.toContain('не найдено');
+  });
+
+  it('lookup recomputes a context.json without a Claude search (a 429 must not stick), keeps one with a search', async () => {
+    const district = await verifyDraft({ bsn: '07G32', queries: [], items: [] }, BUERGEL, profile, fetchFixture, NOW);
+    const searchedCtx = await verifyDraft(draft('07G32', []), BUERGEL, profile, fetchFixture, NOW);
+    expect(claudeSearched(null)).toBe(false);
+    expect(claudeSearched(district)).toBe(false);
+    expect(claudeSearched({ schools: [district, district] })).toBe(false);
+    expect(claudeSearched(searchedCtx)).toBe(true);
+    expect(claudeSearched({ schools: [district, searchedCtx] })).toBe(true); // PLZ: Claude искал хотя бы по одной школе
+  });
+
+  it('a district document that did not load is a warning, not just "nothing found"', async () => {
+    const ctx = await verifyDraft(draft('07G32', []), BUERGEL, profile, fetchFixture, NOW);
+    const gap = { url: 'https://www.berlin.de/ba-x/plan.pdf', summaryRu: 'Investitionsprogramm', reason: 'документ округа не загрузился: HTTP 429' };
+    const html = renderReport(result, { ...ctx, rejected: [gap] });
+    expect(html).toContain('⚠️ Документ округа не проверен — не загрузился: <a href="https://www.berlin.de/ba-x/plan.pdf"');
+    expect(renderReport(result, { ...ctx, rejected: [{ ...gap, reason: 'повтор' }] })).not.toContain('Документ округа не проверен');
+  });
+
   it('the nearest school is not called assigned when the zone gives no school', () => {
     const titled = (catchment: Catchment) => renderReport({ ...result, catchment }).match(/<h2>([^<]*) · 07G32<\/h2>/)?.[1];
     expect(titled(result.catchment!)).toBe('Закреплённая школа');
@@ -646,7 +707,7 @@ describe('report', () => {
     // стройка позже окна — короткой строкой «Дальние планы» после ближних фактов, без пояснения темы
     const far = { ...ctx.items[0], category: 'construction' as const, planned: '2029', contradicts: null, summaryRu: 'Санация и перестройка в 2029–2032 годах' };
     const withFar = renderReport(result, { ...ctx, items: [ctx.items[0], far] });
-    expect(withFar).toMatch(/Новеньких без немецкого[\s\S]*🗓 Дальние планы<\/b> — стройка начнётся позже 2027-04[\s\S]*<b>2029<\/b> · Санация и перестройка в 2029–2032 годах/);
+    expect(withFar).toMatch(/Новеньких без немецкого[\s\S]*🗓 Дальние планы<\/b> — позже 2027-04, могут прийтись на годы учёбы[\s\S]*<b>2029<\/b> · Санация и перестройка в 2029–2032 годах/);
     expect(withFar).not.toContain('<b>Стройка и ремонт.</b>');
     expect(renderReport(result, { ...ctx, items: [far] })).not.toContain('💡 Что это обычно значит');
   });
@@ -693,6 +754,13 @@ describe('PLZ', () => {
     'Bereits 2023 wurde ein temporärer Schulergänzungsbau in Containerbauweise errichtet und seit dem Schuljahr 2023/24 genutzt.',
     'Insgesamt sollen alle Arbeiten bis 2029 abgeschlossen sein.',
   ];
+
+  it('a school without a Claude search in a PLZ report: no "nothing found", district facts marked as not searched', async () => {
+    const ctx = await verifyDraft({ bsn: '09G06', queries: [], items: [] }, MELLI, profile, fetchFixture, NOW);
+    expect(renderPlzReport(result, { schools: [ctx] })).not.toContain('не найдено');
+    const plan = { category: 'capacity' as const, published: '2025-02-25', planned: '2028', url: PRESS_URL, quote: 'x'.repeat(30), summaryRu: 'Заявка — Erweiterungsbau, окончание — 2028', contradicts: null, host: 'www.berlin.de', source: 'official' as const, rule: 'district' as const };
+    expect(renderPlzReport(result, { schools: [{ ...ctx, items: [plan] }] })).toContain('Веб-поиск по школе не проводился');
+  });
 
   it('zone matched by code: the probable school and the other schools of the zone as candidates', () => {
     const html = renderPlzReport({ ...result, zones: [{ ...result.zones[0], status: 'matched_by_code', schools: [school, other] }] });

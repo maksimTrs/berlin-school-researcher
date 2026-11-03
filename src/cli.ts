@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
-import { AddressContextSchema, Draft, fetchFollowing, longTerm, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
-import { currentFigures, KEY_FIGURES, keyFigure } from './extract.js';
+import { AddressContextSchema, claudeSearched, Draft, fetchFollowing, longTerm, onSchoolSite, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
+import { district, districtFacts, verifyDistrict } from './district.js';
+import { currentFigures, KEY_FIGURES, keyFigure, type Profile } from './extract.js';
 import { basemap, catchment, checkOverrides, checkWithoutZone, formatAddress, geocode, neighbors, onStreet, overrideIgnored, plzZones, primarySchools, resolveStatus, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
 import { firstLine, preflight } from './preflight.js';
@@ -76,6 +77,25 @@ async function resolveCmd() {
   }
 }
 
+type Facts = ReturnType<typeof districtFacts>;
+
+/** Факты документов округа без поиска Claude (queries пустой — в отчёте «поиск не проводился»); нечего показать — null. */
+async function districtOnly(facts: Facts, school: School, profile: Profile, fetchUrl: ReturnType<typeof fetchFollowing>, maxItems: number): Promise<Context | null> {
+  const f = await facts(school);
+  return f.items.length || f.rejected.length ? verifyDraft({ bsn: school.bsn, queries: [], items: [] }, school, profile, fetchUrl, new Date(), maxItems, f) : null;
+}
+
+/**
+ * context.json без поиска Claude (его писали lookup/plz) пересчитывается при каждом прогоне — иначе сбой berlin.de (429)
+ * застревал бы в нём навсегда; с находками Claude — не трогаем, его обновляет npm run context.
+ */
+const districtOnlyContext = (dir: string) => !claudeSearched(readContext(dir, AddressContextSchema));
+
+function writeDistrictContext(dir: string, found: Context[], joint: boolean) {
+  if (found.length) writeFileSync(join(dir, 'context.json'), JSON.stringify(joint ? { schools: found } : found[0], null, 2));
+  else rmSync(join(dir, 'context.json'), { force: true }); // документы округа о школах больше ничего не дают
+}
+
 async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir: string | null }> {
   const api = await newApi();
   try {
@@ -126,6 +146,14 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
 
     const result: AddressResult = { ...base, status: 'ok', address: addr, alternatives, catchment: c, schools, warnings };
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
+    // документы округа — и без Claude: первый прогон пишет context.json с ними; npm run context потом добавит находки поиска
+    if (districtOnlyContext(dir)) {
+      const fetchUrl = fetchFollowing(api);
+      const facts = districtFacts(fetchUrl);
+      const assigned = schools.filter((s) => s.role === 'main' || s.role === 'joint');
+      const found = (await Promise.all(assigned.map((s) => districtOnly(facts, s.school, s.data.profile, fetchUrl, config.context.maxItems)))).filter((x) => x !== null);
+      writeDistrictContext(dir, found, c.status === 'joint');
+    }
     // проверенные факты прошлого прогона не теряются при повторном lookup; дата проверки — в отчёте
     writeFileSync(join(dir, 'report.html'), renderReport(result, readContext(dir, AddressContextSchema)));
     return { result, dir };
@@ -150,7 +178,10 @@ async function contextCmd() {
   const raw = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8'));
   const draftJson = JSON.parse(readFileSync(join(dir, 'context.draft.json'), 'utf8'));
   const api = await newApi();
-  const fetchUrl = fetchFollowing(api);
+  // переадресации на сайте школы (http → https, www) — только к сайтам школ этого отчёта
+  const sites = (raw.schools as { school: School }[]).map((s) => s.school.web).filter((w) => !!w);
+  const fetchUrl = fetchFollowing(api, (url) => sites.some((w) => onSchoolSite(url, w)));
+  const facts = districtFacts(fetchUrl); // документы округа — один раз на все школы папки
   try {
     if ('zones' in raw) {
       const result = raw as PlzResult;
@@ -160,7 +191,12 @@ async function contextCmd() {
         // школа без Schulporträt (в warnings) или не из зон — пропускаем, остальные школы проверяем
         const s = result.schools.find((x) => x.school.bsn === d.bsn);
         if (!s) skipped.push({ bsn: d.bsn, reason: 'нет среди школ с данными в result.json' });
-        else ctx.schools.push(await verifyDraft(d, s.school, s.data.profile, fetchUrl, new Date(), config.context.plzMaxItemsPerSchool));
+        else ctx.schools.push(await verifyDraft(d, s.school, s.data.profile, fetchUrl, new Date(), config.context.plzMaxItemsPerSchool, await facts(s.school)));
+      }
+      // школа зон без черновика — факты округа ей всё равно (иначе context стирал бы то, что записал plz)
+      for (const s of result.schools.filter((x) => !ctx.schools.some((c) => c.bsn === x.school.bsn))) {
+        const only = await districtOnly(facts, s.school, s.data.profile, fetchUrl, config.context.plzMaxItemsPerSchool);
+        if (only) ctx.schools.push(only);
       }
       writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
       writeFileSync(join(dir, 'report.html'), renderPlzReport(result, ctx, readBasemap(dir)));
@@ -178,14 +214,18 @@ async function contextCmd() {
         const s = result.schools.find((x) => x.school.bsn === d.bsn && (x.role === 'main' || x.role === 'joint'));
         const assigned = result.catchment?.schools.some((x) => x.bsn === d.bsn);
         if (!s) skipped.push({ bsn: d.bsn, reason: assigned ? 'нет данных в result.json (Schulporträt не загрузился)' : 'не закреплённая школа этого адреса' });
-        else ctx.schools.push(await verifyDraft(d, s.school, s.data.profile, fetchUrl));
+        else ctx.schools.push(await verifyDraft(d, s.school, s.data.profile, fetchUrl, new Date(), config.context.maxItems, await facts(s.school)));
+      }
+      for (const s of result.schools.filter((x) => (x.role === 'main' || x.role === 'joint') && !ctx.schools.some((c) => c.bsn === x.school.bsn))) {
+        const only = await districtOnly(facts, s.school, s.data.profile, fetchUrl, config.context.maxItems);
+        if (only) ctx.schools.push(only);
       }
       writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
       writeFileSync(join(dir, 'report.html'), renderReport(result, ctx));
       console.log(JSON.stringify({ schools: ctx.schools.map(brief), skipped, report: join(dir, 'report.html') }, null, 2));
       return;
     }
-    const ctx = await verifyDraft(Draft.parse(draftJson), main.school, main.data.profile, fetchUrl);
+    const ctx = await verifyDraft(Draft.parse(draftJson), main.school, main.data.profile, fetchUrl, new Date(), config.context.maxItems, await facts(main.school));
     writeFileSync(join(dir, 'context.json'), JSON.stringify(ctx, null, 2));
     writeFileSync(join(dir, 'report.html'), renderReport(result, ctx));
     console.log(JSON.stringify({ ...brief(ctx), report: join(dir, 'report.html') }, null, 2));
@@ -318,6 +358,17 @@ async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | n
 
     const result: PlzResult = { ...base, status: 'ok', addresses: total, zones, schools, warnings };
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
+    // документы округа — каждой школе зон и без Claude (как в lookup)
+    if (districtOnlyContext(dir)) {
+      const fetchUrl = fetchFollowing(api);
+      const facts = districtFacts(fetchUrl);
+      const found: Context[] = [];
+      for (const s of schools) {
+        const ctx = await districtOnly(facts, s.school, s.data.profile, fetchUrl, config.context.plzMaxItemsPerSchool);
+        if (ctx) found.push(ctx);
+      }
+      writeDistrictContext(dir, found, true);
+    }
     writeFileSync(join(dir, 'report.html'), renderPlzReport(result, readContext(dir, PlzContextSchema), readBasemap(dir)));
     return { result, dir };
   } finally {
@@ -434,6 +485,10 @@ async function canaryCmd() {
     // правила переезда посреди года: цитаты снимка ещё дословно в документах SenBJF
     await check('Переезд (config/zuzug.json)', async () =>
       (await verifyZuzug(zuzug(), fetchFollowing(api))).map((p) => `Переезд (config/zuzug.json): ${p} — найди новую формулировку и обнови снимок`),
+    );
+    // документы округа: открываются, строки инвестплана разбираются, цитаты и дата решения на месте
+    await check('Документы округа (config/district.json)', async () =>
+      (await verifyDistrict(district(), fetchFollowing(api))).map((p) => `Документы округа (config/district.json): ${p} — сверь документ и обнови снимок`),
     );
     // Schulamt и Schulaufsicht округов: адрес и email ещё на страницах ведомств, запись есть у каждого округа школ реестра
     await check('Schulamt (config/schulamt.json)', async () => {
