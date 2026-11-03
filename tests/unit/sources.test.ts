@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { Draft, fetchFollowing, inspectionReport, onSchoolSite, verifyDraft, type DraftItem, type Fetched } from '../../src/context.js';
+import { Draft, fetchFollowing, inspectionReport, onSchoolSite, schoolHome, verifyDraft, type DraftItem, type Fetched } from '../../src/context.js';
 
 // реальный отчёт Schulinspektion (bildung.berlin.de, «veröffentlicht am 01.12.2025» на Schulporträt); сайт школы — заглушка
 const INSPECTION = 'https://www.bildung.berlin.de/Schulverzeichnis/DokLoader.aspx?Schulinspektion=04G04_B_20251201_1082.pdf';
@@ -66,6 +66,17 @@ describe('the school’s own website', () => {
     expect(onSchoolSite('https://joan-miro-grundschule.de/profil/', SITE)).toBe(true);
     expect(onSchoolSite('https://joan-miro-grundschule.de.evil.example/', SITE)).toBe(false);
     expect(onSchoolSite('https://www.joan-miro-grundschule.de/', null)).toBe(false);
+  });
+
+  it('a school site that is a section of a shared domain: only pages inside that section, its root is the home page', () => {
+    // реальная пара из реестра: 10G38 — grundschule38-marzahn.net, 10G39 — grundschule38-marzahn.net/38-grundschule
+    const web = 'https://www.grundschule38-marzahn.net/38-grundschule';
+    expect(onSchoolSite('https://grundschule38-marzahn.net/38-grundschule/profil', web)).toBe(true);
+    expect(onSchoolSite('https://www.grundschule38-marzahn.net/38-grundschule-alt/x', web)).toBe(false);
+    expect(onSchoolSite('https://www.grundschule38-marzahn.net/profil', web)).toBe(false);
+    expect(schoolHome('https://www.grundschule38-marzahn.net/38-grundschule/', web)).toBe(true);
+    expect(schoolHome('https://www.grundschule38-marzahn.net/38-grundschule/profil', web)).toBe(false);
+    expect(schoolHome('https://www.joan-miro-grundschule.de/', SITE)).toBe(true);
   });
 
   it('strengths from an undated page: «со слов школы», published is the month of the check', async () => {

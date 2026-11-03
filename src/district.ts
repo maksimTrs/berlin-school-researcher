@@ -30,12 +30,15 @@ const BSN = z.string().regex(/^\d{2}[A-Z]\d{2}$/);
 const Day = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/);
 // bezirk — как в WFS (`bezirk` школы): документ скачивается только для школ своего округа. Не префикс BSN: у одной школы Pankow он «02»
 const Common = { bezirk: z.string().min(3), url: z.string().url(), title: z.string().min(5), published: Day, decision: z.string().url() };
+// инвестплан Bezirksamt подаёт каждую весну (на следующие 5 лет): заявка старше этого — canary просит проверить, нет ли новой
+export const PLAN_MAX_AGE_MONTHS = 15;
 
 const Snapshot = z.object({
   documents: z.array(
     z.discriminatedUnion('kind', [
       // инвестплан: строка — до года окончания стройки (EndeBau)
-      z.object({ kind: z.literal('investment'), ...Common }).strict(),
+      // checked — дата, когда на сайте Bezirksamt проверили, что новее этой заявки нет (срок PLAN_MAX_AGE_MONTHS считается от неё)
+      z.object({ kind: z.literal('investment'), ...Common, checked: Day.optional() }).strict(),
       // решение о зонах: действует, пока идёт слой зон, под который принято; цитаты — дословно из документа
       z
         .object({
@@ -217,9 +220,16 @@ export function districtFacts(fetchUrl: (url: string) => Promise<Fetched>, snap:
  * Снимок ещё совпадает с сайтом: документ открывается, в инвестплане разбираются строки, цитаты решения о зонах на месте,
  * пересказ без чужих чисел, страница решения Bezirksamt называет эту дату и ссылается на документ.
  */
-export async function verifyDistrict(snap: District, fetchUrl: (url: string) => Promise<Fetched>): Promise<string[]> {
+export async function verifyDistrict(snap: District, fetchUrl: (url: string) => Promise<Fetched>, now = new Date()): Promise<string[]> {
   const problems: string[] = [];
+  const month = contextWindow(now).now;
+  const monthOfDay = (d: string) => Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7)) - 1;
   for (const doc of snap.documents) {
+    // снимок устарел — отчёты молча теряют строки: решение о прошлом слое зон не показывается, план прошлого года неполон
+    if (doc.kind === 'catchment' && doc.layer < currentEsbLayer(now))
+      problems.push(`${doc.url}: решение о зонах для ${doc.layer}, а текущий слой — ${currentEsbLayer(now)}; в отчёты оно больше не идёт — найди решение Bezirksamt о Zuschneidung der Einschulungsbereiche под новый слой или удали запись`);
+    if (doc.kind === 'investment' && month - monthOfDay(doc.checked ?? doc.published) > PLAN_MAX_AGE_MONTHS)
+      problems.push(`${doc.url}: заявке в инвестпрограмму от ${doc.published} больше ${PLAN_MAX_AGE_MONTHS} мес. — найди на сайте Bezirksamt новую (Anmeldungen zum Investitionsprogramm) и замени запись; новее нет — поставь checked: дату проверки`);
     try {
       const t = await loadDoc(fetchUrl, doc.url);
       if (doc.kind === 'investment') {

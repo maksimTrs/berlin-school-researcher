@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ContextSchema, Draft, findQuote, foreignNumbers, normalize, pageText, verifyDraft, type DraftItem, type Fetched } from '../../src/context.js';
 import { schulamt } from '../../src/schulamt.js';
-import { district, districtFacts, investmentCategory, investmentInWindow, investmentSummary, parseInvestment, verifyDistrict, type District } from '../../src/district.js';
+import { district, districtFacts, investmentCategory, investmentInWindow, investmentSummary, parseInvestment, PLAN_MAX_AGE_MONTHS, verifyDistrict, type District } from '../../src/district.js';
 
 // реальные документы Bezirksamt Charlottenburg-Wilmersdorf: инвестплан (Beschluss 25.02.2025), решение о зонах (17.06.2025) и страницы решений
 const fixture = (name: string) => readFileSync(new URL(`../fixtures/${name}`, import.meta.url));
@@ -21,6 +21,7 @@ const fetchFixture = async (url: string): Promise<Fetched> => {
 };
 
 const NOW = new Date('2026-11-03T12:00:00Z'); // слой esb_2026
+const FRESH = new Date('2026-03-02T12:00:00Z'); // заявке 25.02.2025 — 12 мес.: canary ещё не просит новую
 const CW = 'Charlottenburg-Wilmersdorf';
 const text = await pageText({ contentType: 'application/pdf', body: fixture('district_investment_04.pdf') });
 const rows = parseInvestment(text);
@@ -118,7 +119,7 @@ describe('district facts of a school', () => {
           category: 'construction',
           published: '2025-02',
           planned: '2029',
-          url: `${INVEST.url}?ts=1745931341`,
+          url: `${INVEST.url.replace('https://www.', 'http://')}?ts=1745931341`, // тот же PDF по http, без www и с query
           quote: '04G23, Alt-Schmargendorf-Grundschule: Gesamtsanierung; 14199, Reichenhallerstr. 8-9 4.256 Verschoben 2029',
           summaryRu: 'Санация перенесена, 2029',
         },
@@ -213,7 +214,7 @@ describe('district snapshot', () => {
   });
 
   it('canary: documents parse, quotes are in place, decision pages name the date and link the document', async () => {
-    expect(await verifyDistrict(district(), fetchFixture)).toEqual([]);
+    expect(await verifyDistrict(district(), fetchFixture, FRESH)).toEqual([]);
   });
 
   it('canary: a plan without parsable rows and a decision page without the link are named', async () => {
@@ -223,7 +224,7 @@ describe('district snapshot', () => {
         : url === INVEST.decision
           ? { url, status: 200, contentType: 'text/html', body: Buffer.from('<main><h1>BA-Beschlussprotokoll 25. Februar 2025</h1></main>') }
           : fetchFixture(url);
-    expect(await verifyDistrict({ documents: [INVEST] }, fetch)).toEqual([
+    expect(await verifyDistrict({ documents: [INVEST] }, fetch, FRESH)).toEqual([
       `${INVEST.url}: ни одной строки школы с EndeBau — сменилась вёрстка таблицы?`,
       `${INVEST.decision}: страница решения больше не ссылается на 150_ba_n_bproto_250225_anlage-1.pdf`,
     ]);
@@ -234,9 +235,30 @@ describe('district snapshot', () => {
       ...district(),
       documents: [{ ...INVEST, published: '2025-02-11' }, { ...CATCHMENT, items: [{ ...CATCHMENT.items[0], quote: 'Ein Satz, den es im Dokument nicht gibt, Versorgungsdefizit.' }] }],
     };
-    expect(await verifyDistrict(snap, fetchFixture)).toEqual([
+    expect(await verifyDistrict(snap, fetchFixture, FRESH)).toEqual([
       `${INVEST.decision}: первая дата на странице решения — не 2025-02-11`,
       `${CATCHMENT.url}: цитаты «Ein Satz, den es im Dokument nicht gibt, Versorgungsdefizit.…» больше нет в документе`,
     ]);
+  });
+
+  it('canary: a plan older than PLAN_MAX_AGE_MONTHS asks for the new one, unless checked says there is none yet', async () => {
+    const stale = `${INVEST.url}: заявке в инвестпрограмму от 2025-02-25 больше ${PLAN_MAX_AGE_MONTHS} мес. — найди на сайте Bezirksamt новую (Anmeldungen zum Investitionsprogramm) и замени запись; новее нет — поставь checked: дату проверки`;
+    expect(await verifyDistrict({ documents: [INVEST] }, fetchFixture, new Date('2026-05-02T12:00:00Z'))).toEqual([]); // 14 мес.
+    expect(await verifyDistrict({ documents: [INVEST] }, fetchFixture, new Date('2026-06-02T12:00:00Z'))).toEqual([stale]); // 16 мес.
+    expect(await verifyDistrict({ documents: [{ ...INVEST, checked: '2026-10-20' }] }, fetchFixture, NOW)).toEqual([]);
+    expect(await verifyDistrict({ documents: [{ ...INVEST, checked: '2026-10-20' }] }, fetchFixture, new Date('2028-02-01T12:00:00Z'))).toEqual([stale]);
+  });
+
+  it('canary: a catchment decision for a past zone layer is named — reports stop showing it on 1 August', async () => {
+    const past = `${CATCHMENT.url}: решение о зонах для esb_2026, а текущий слой — esb_2027; в отчёты оно больше не идёт — найди решение Bezirksamt о Zuschneidung der Einschulungsbereiche под новый слой или удали запись`;
+    expect(await verifyDistrict({ documents: [CATCHMENT] }, fetchFixture, new Date('2027-07-31T12:00:00Z'))).toEqual([]);
+    expect(await verifyDistrict({ documents: [CATCHMENT] }, fetchFixture, new Date('2027-08-01T12:00:00Z'))).toEqual([past]);
+    // решение под следующий слой, принятое до августа, — ещё не действует, но и не устарело
+    expect(await verifyDistrict({ documents: [CATCHMENT] }, fetchFixture, new Date('2026-03-02T12:00:00Z'))).toEqual([]);
+  });
+
+  it('a catchment decision for a past layer gives no facts any more', async () => {
+    const facts = districtFacts(fetchFixture, { documents: [CATCHMENT] });
+    expect((await facts({ bsn: '04G20', name: 'Katharina-Heinroth-Grundschule', bezirk: CW }, new Date('2027-08-01T12:00:00Z'))).items).toEqual([]);
   });
 });

@@ -294,8 +294,25 @@ export function inspectionReport(url: string): { bsn: string; published: string 
 
 const bareHost = (url: string) => new URL(url).hostname.replace(/^www\./, '');
 
-/** Сайт самой школы (поле internet в Schulverzeichnis) — только для темы «Сильные стороны», с пометкой «со слов школы». */
-export const onSchoolSite = (url: string, web: string | null | undefined) => !!web && /^https?:/.test(web) && bareHost(url) === bareHost(web);
+// путь сайта школы без «/» в конце: у части школ сайт — раздел общего домена («grundschule38-marzahn.net/38-grundschule»)
+const sitePath = (url: string) => new URL(url).pathname.replace(/\/+$/, '');
+
+/**
+ * Сайт самой школы (поле internet в Schulverzeichnis) — только для темы «Сильные стороны», с пометкой «со слов школы».
+ * Тот же домен (с www или без) и, если сайт школы — раздел домена, страница внутри этого раздела.
+ */
+export const onSchoolSite = (url: string, web: string | null | undefined) => {
+  if (!web || !/^https?:/.test(web) || bareHost(url) !== bareHost(web)) return false;
+  const base = sitePath(web);
+  const path = sitePath(url);
+  return !base || path === base || path.startsWith(`${base}/`);
+};
+
+/** Главная страница сайта школы — список новостей и разделов, а не документ. */
+export const schoolHome = (url: string, web: string | null | undefined) => !!web && onSchoolSite(url, web) && sitePath(url) === sitePath(web);
+
+/** Документ без схемы, www, query и якоря: тот же PDF по http или без www — тот же документ. */
+export const docKey = (url: string) => `${bareHost(url)}${new URL(url).pathname}`;
 
 const numbers = (s: string) => (s.match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => n.replace(',', '.'));
 
@@ -456,7 +473,7 @@ export async function verifyDraft(
   const rejected: Rejected[] = [...district.rejected];
   for (const item of draft.items) {
     const reject = (reason: string) => rejected.push({ url: item.url, summaryRu: item.summaryRu, reason });
-    if (district.urls.includes(item.url.replace(/[?#].*$/, ''))) {
+    if (district.urls.some((u) => docKey(u) === docKey(item.url))) {
       reject('документ округа из config/district.json: его строки по школе берёт код');
       continue;
     }
@@ -475,8 +492,8 @@ export async function verifyDraft(
       reject(`отчёт Schulinspektion опубликован ${inspection.published} (имя файла), а не ${item.published}`);
       continue;
     }
-    // у сайта школы страница вроде «/profil/» — не список новостей; список — только главная
-    if (kind === 'school' ? new URL(item.url).pathname === '/' : isListing(item.url)) {
+    // у сайта школы страница вроде «/profil/» — не список новостей; список — только главная (корень сайта школы)
+    if (kind === 'school' ? schoolHome(item.url, school.web) : isListing(item.url)) {
       reject('страница-список, а не документ: нужна ссылка на саму заметку');
       continue;
     }
@@ -505,7 +522,7 @@ export async function verifyDraft(
       reject(`переадресация на ${new URL(page.final).hostname}`);
       continue;
     }
-    if (kind === 'school' ? new URL(page.final).pathname === '/' : isListing(page.final)) {
+    if (kind === 'school' ? schoolHome(page.final, school.web) : isListing(page.final)) {
       reject('переадресация на страницу-список, а не документ');
       continue;
     }
