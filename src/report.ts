@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { config } from './config.js';
+import { berlinDay, config } from './config.js';
 import { CATEGORIES, farPlan, PRIORITY, type Category, type Context, type PlzContext } from './context.js';
 import { fehlGrades, KEY_FIGURES, keyFigure, PAGES, type PageKey } from './extract.js';
 import { formatAddress, type Candidate, type Catchment, type ExcludedByOrtsteil, type School, type ZoneShare } from './geo.js';
@@ -284,7 +284,7 @@ function factsList(ctx: Context): string {
 }
 
 const checkedNote = (ctx: Context) =>
-  `<p class="note">Проверено ${esc(ctx.checkedAt.slice(0, 10))}: публикации с ${esc(ctx.window.publishedFrom)} и планы до ${esc(ctx.window.plannedTo)}${ctx.window.constructionTo ? ` (стройка — до ${esc(ctx.window.constructionTo)})` : ''}, ${ctx.items.some((i) => i.source === 'school') ? 'официальные источники и сайт самой школы (помечено «со слов школы»)' : 'только официальные источники'}, каждый факт сверен с документом.${
+  `<p class="note">Проверено ${esc(berlinDay(ctx.checkedAt))}: публикации с ${esc(ctx.window.publishedFrom)} и планы до ${esc(ctx.window.plannedTo)}${ctx.window.constructionTo ? ` (стройка — до ${esc(ctx.window.constructionTo)})` : ''}, ${ctx.items.some((i) => i.source === 'school') ? 'официальные источники и сайт самой школы (помечено «со слов школы»)' : 'только официальные источники'}, каждый факт сверен с документом.${
     ctx.items.some((i) => i.rule === 'district')
       ? ' Документы округа (инвестплан, решение о зонах) код берёт всегда: строку плана — пока не прошёл год окончания стройки, решение о зонах — пока действует слой зон, под который оно принято.'
       : ''
@@ -401,7 +401,7 @@ ${contextBlock(facts.get(o.school.bsn) ?? null, o.data.profile.name || o.school.
 
   return page(title, `<main>
 <header style="display:grid;gap:6px">
-  <span class="eyebrow">Einschulbereich ${esc(c.esb ?? '—')} · слой ${esc(r.esbLayer)} · отчёт от ${esc(r.generatedAt.slice(0, 10))}</span>
+  <span class="eyebrow">Einschulbereich ${esc(c.esb ?? '—')} · слой ${esc(r.esbLayer)} · отчёт от ${esc(berlinDay(r.generatedAt))}</span>
   <h1>${esc(main.data.profile.name || main.school.name)}</h1>
   <div class="meta">Адрес: <b>${esc(formatAddress(addr))}</b> (${esc(addr.bezirk)})${r.input.raw ? ` · ввод: «${esc(r.input.raw)}»` : ''}</div>
   ${officesBlock([addr.bezirk])}
@@ -598,7 +598,8 @@ export function mapFrame(zones: ZoneShare[]) {
  * заливка нейтральная. Подсказка при наведении — <title>. Табличный вид — таблица зон выше.
  * basemap — data: URI подложки basemap.de на кадр mapFrame (улицы и названия); нет — карта без подложки.
  */
-export function zoneMap(zones: ZoneShare[], basemap: string | null = null): string {
+// year — год подложки basemap.de (© BKG): год прогона, а не перерендера
+export function zoneMap(zones: ZoneShare[], basemap: string | null = null, year = berlinDay(new Date()).slice(0, 4)): string {
   const frame = mapFrame(zones);
   if (!frame) return '';
   const { withPoints, schools, h, x, y } = frame;
@@ -635,7 +636,7 @@ export function zoneMap(zones: ZoneShare[], basemap: string | null = null): stri
     <div class="scroll"><svg viewBox="0 0 ${MAP_W} ${h}" role="img" aria-label="Карта зон Einschulbereich: границы зон, дома запроса и школы">
       ${basemap ? `<image class="basemap" href="${basemap}" width="${MAP_W}" height="${h}" preserveAspectRatio="none"/>` : ''}<g class="zones">${areas}</g><g class="dots">${dots}</g><g>${labels}</g>${marks}
     </svg></div>
-    <figcaption>Границы зон Einschulbereich (номер зоны — на карте), точки — дома запроса, кружки с номером — школы. Наведите на зону или школу — подсказка; на телефоне карта листается вбок.${basemap ? ` Подложка: © GeoBasis-DE / BKG (${new Date().getFullYear()}), <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.` : ''}</figcaption>
+    <figcaption>Границы зон Einschulbereich (номер зоны — на карте), точки — дома запроса, кружки с номером — школы. Наведите на зону или школу — подсказка; на телефоне карта листается вбок.${basemap ? ` Подложка: © GeoBasis-DE / BKG (${year}), <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.` : ''}</figcaption>
   </figure>
   </details>`;
 }
@@ -750,7 +751,7 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null, bas
       : 'Адреса PLZ';
   return page(`Школы — ${plzTitle(r.input)}`, `<main>
 <header style="display:grid;gap:6px">
-  <span class="eyebrow">Поиск по ${r.input.ortsteil ? 'району' : 'PLZ'} · слой ${esc(r.esbLayer)} · отчёт от ${esc(r.generatedAt.slice(0, 10))}</span>
+  <span class="eyebrow">Поиск по ${r.input.ortsteil ? 'району' : 'PLZ'} · слой ${esc(r.esbLayer)} · отчёт от ${esc(berlinDay(r.generatedAt))}</span>
   <h1>Школы — ${esc(plzTitle(r.input))}</h1>
   <div class="meta">${where} в реестре: <b>${r.addresses}</b> · зон Einschulbereich: <b>${r.zones.length}</b></div>
   ${officesBlock([...new Set(r.schools.map((s) => s.school.bezirk))])}
@@ -769,7 +770,7 @@ ${plzTable}
 <section>
   <h2>Зоны и школы</h2>
   ${zonesTable}
-  ${zoneMap(r.zones, basemap)}
+  ${zoneMap(r.zones, basemap, berlinDay(r.generatedAt).slice(0, 4))}
   <p class="note">Доля — от числа адресов (домов) в реестре, не квартир: особняк и дом на 200 квартир считаются одинаково. Это не вероятность, что квартира попадёт в зону. Маркер — за ${years.length} уч. года, как в отчёте по адресу.</p>
 </section>
 

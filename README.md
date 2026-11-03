@@ -77,6 +77,19 @@ npm test && npm run canary        # юнит-тесты и полный прог
 
 Дальше отчёт строит `/school` в Claude Code или `npm run lookup` ([без Claude](#без-claude-только-терминал)).
 
+### Проверки на старте сессии Claude Code
+
+Два SessionStart hook из `.claude/settings.json` — локально и в облаке одинаково, без запросов на разрешение:
+
+| Hook | Когда | Что делает |
+|---|---|---|
+| `scripts/stale_check.sh` | каждый старт и resume, ~1 с, без сети | `npm run stale`: снимки, устаревшие по календарю (заявка округа старше 15 мес., решение о зонах прошлого слоя, `esbOverridesLayer` прошлого слоя) — Claude скажет об этом в начале сессии |
+| `scripts/canary-hook.mjs` | старт сессии, в фоне (`asyncRewake`) | полный `npm run canary`, не чаще раза в 7 дней после зелёного прогона. Красный — будит Claude, и он говорит, что сломалось и что обновить; сайт недоступен (preflight, `HTTP 429`, сеть) — молча, повтор не раньше чем через сутки |
+
+- Даты прогонов и полный вывод — `out/.canary/` (`last.json`; `out/` не в git). В облаке каждая сессия начинается без них, поэтому canary идёт на каждом старте: запросы по нескольким адресам удобнее делать в одной сессии.
+- Без VPN berlin.de часто отвечает 429 — тогда canary не позеленеет, но и не будит; для полной проверки включите VPN и запустите `npm run canary`.
+- `*.sh` в `.gitattributes` — с LF: на Windows с `core.autocrlf` bash падает на CRLF.
+
 ### Облако
 
 1. **GitHub:** при первой облачной сессии claude.ai предложит подключить Claude GitHub App — для публичного репозитория этого достаточно (или `/web-setup` из терминала).
@@ -96,7 +109,7 @@ npm test && npm run canary        # юнит-тесты и полный прог
 
    - Версия = `playwright` в `package.json`: обновили пакет — обновите скрипт.
    - Без `|| true`: сбой установки виден сразу при старте сессии, а не ошибкой на каждом адресе.
-   - npm-зависимости ставит SessionStart hook (`.claude/settings.json` → `scripts/install_pkgs.sh`).
+   - npm-зависимости ставит SessionStart hook (`.claude/settings.json` → `scripts/install_pkgs.sh`); фоновый canary ждёт его (`out/.canary/deps-ready`).
 3. **Каждый запуск:** под полем ввода — окружение `berlin-school-researcher` → репозиторий `<ваш-github>/berlin-school-researcher` → ветка `main` → режим **Auto** → отправить:
 
    ```text
@@ -272,10 +285,11 @@ flowchart TD
 | `npm run plz -- --input plz-input.json` | до 5 запросов `{ "queries": [{ "plz"?, "ortsteil"?, "street"? }, …] }` → массив сводок; сбой одного не останавливает остальные, повтор — `skipped` |
 | `npm run context -- --dir out/<адрес>` | `context.draft.json` → проверка по документам → `context.json` и заново `report.html`; `plz-…` / `ortsteil-…` — по каждой школе зон, до 3 фактов на школу |
 | `npm run canary` | эталонный адрес проходит весь путь, при поломке сайта — подстраница и поле; сверяет снимки Startchancen, `config/zuzug.json` (официальный источник, дословная цитата, дата документа) `config/schulamt.json` (адрес и ящик на странице ведомства, запись у каждого округа реестра) и `config/district.json` (строки инвестплана разбираются, цитаты на месте, дата и ссылка на странице решения, заявка не старше 15 мес., решение о зонах — текущего слоя), `esbOverrides` и `schoolsWithoutZone` — со слоем зон и реестром школ |
+| `npm run stale` | снимки, устаревшие по календарю, без сети (то же, что hook на старте сессии); всё в порядке — пусто |
 | `npm run update:startchancen` | перезаписать снимок Startchancen (когда `canary` сказал, что список изменился) и закоммитить |
 | `npm run preflight` | доступны ли критичные источники; `lookup`, `plz` и `canary` проверяют сами и при сбое не запускаются (exit code 2) |
 | `npm test` | юнит-тесты на сохранённом HTML, без сети |
-| `npm run test:smoke` | живые проверки: адрес → зона → школа (S1–S5), PLZ и район → зоны (S6–S8) |
+| `npm run test:smoke` | живые проверки: адрес → зона → школа (S1–S5), PLZ и район → зоны (S6–S8) — значения слоя `SNAPSHOT_LAYER` (`esb_2026`), на другом слое пропускаются; S9 — без привязки к слою. Новый слой — снять значения заново |
 | `npm run typecheck` | проверка типов |
 
 **CI** (`.github/workflows/ci.yml`), каждый push и PR в `main`: `npm ci` → `typecheck` → `npm test`, ~30 с. Живые сайты в CI не трогаем — их проверяют `test:smoke` и `canary`.

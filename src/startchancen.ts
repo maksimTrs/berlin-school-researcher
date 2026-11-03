@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { APIRequestContext } from 'playwright';
 import { z } from 'zod';
+import { berlinDay } from './config.js';
 
 /**
  * Школы программы Startchancen (много учеников из социально неблагополучных семей → доп. деньги и персонал).
@@ -48,6 +49,6 @@ export const diffSchools = (before: string[], after: string[]) => ({
 });
 
 export function saveSnapshot(schools: string[]): void {
-  const snapshot = { source: LIST_PAGE, fetchedAt: new Date().toISOString().slice(0, 10), schools };
+  const snapshot = { source: LIST_PAGE, fetchedAt: berlinDay(new Date()), schools };
   writeFileSync(FILE, `${JSON.stringify(snapshot, null, 2)}\n`);
 }

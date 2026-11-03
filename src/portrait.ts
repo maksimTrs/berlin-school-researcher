@@ -7,6 +7,7 @@ import {
   extractInspections,
   extractPage,
   extractProfile,
+  portraitBsn,
   forYear,
   KEY_FIGURES,
   PAGES,
@@ -101,6 +102,8 @@ export async function collectSchool(
     inspections: [],
     screenshots: [],
   };
+  const shown = portraitBsn(result.profile);
+  if (shown && shown !== bsn) throw new Error(`${bsn}: открылся портрет другой школы (${shown}) — её цифры под этим номером не берём`);
   const urlOf = (rel: string) => new URL(rel, portraitUrl).toString();
   // HTTP-запрос в той же сессии (cookie контекста) — быстрее навигации браузера
   const fetchHtml = async (rel: string) => {

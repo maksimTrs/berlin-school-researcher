@@ -134,6 +134,12 @@ const PROFILE_FIELDS: [string, string][] = [
   ['Кружки (AG)', 'lblAGs'],
 ];
 
+/**
+ * Школа, чей портрет открылся: BSN в конце названия («Grundschule am Arkonaplatz - 01G01»). Поиск по номеру может вернуть
+ * список, из которого берётся первая Grundschule, — чужой BSN значит, что цифры были бы не этой школы. Номера в названии нет — null.
+ */
+export const portraitBsn = (profile: Pick<Profile, 'name'>): string | null => / - (\d{2}[A-Z]\d{2})$/.exec(profile.name)?.[1] ?? null;
+
 export function extractProfile(html: string): Profile {
   const root = parse(html);
   const text = (id: string) => clean(root.querySelector(`#ContentPlaceHolderMenuListe_${id}`)?.text ?? '');

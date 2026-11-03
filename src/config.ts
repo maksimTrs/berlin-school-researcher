@@ -42,6 +42,9 @@ export function currentEsbLayer(now = new Date()): string {
   return `esb_${m >= 8 ? y : y - 1}`;
 }
 
+/** День по берлинскому времени (YYYY-MM-DD): с 00:00 до 02:00 по Берлину по UTC ещё вчера. */
+export const berlinDay = (at: string | Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date(at));
+
 export const config = {
   ...Config.parse(JSON.parse(readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'))),
   esbLayer: currentEsbLayer(),

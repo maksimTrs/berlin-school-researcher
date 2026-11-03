@@ -7,6 +7,7 @@ import {
   extractInspections,
   extractPage,
   extractProfile,
+  portraitBsn,
   forYear,
   keyFigure,
 } from '../../src/extract.js';
@@ -133,6 +134,13 @@ describe('portrait helpers', () => {
     const p = extractProfile(fixture('01G01_portrait'));
     expect(p.name).toBe('Grundschule am Arkonaplatz - 01G01');
     expect(Object.fromEntries(p.fields)['Директор']).toBe('Scheible, Ina');
+  });
+
+  it('portraitBsn: the school whose portrait opened, from the end of its name', () => {
+    expect(portraitBsn(extractProfile(fixture('01G01_portrait')))).toBe('01G01');
+    expect(portraitBsn({ name: 'Charles-Dickens-Grundschule - 04G15' })).toBe('04G15');
+    expect(portraitBsn({ name: 'Grundschule ohne Nummer' })).toBeNull();
+    expect(portraitBsn({ name: '' })).toBeNull();
   });
 
   it('extractInspections: absolute PDF links', () => {

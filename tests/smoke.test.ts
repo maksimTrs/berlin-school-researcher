@@ -1,9 +1,14 @@
-// Живые сервисы gdi.berlin.de, эталонные адреса S1–S5, PLZ и район S6–S8 (значения сняты 23.10.2026). Портрет школы проверяет `npm run canary`.
+// Живые сервисы gdi.berlin.de, эталонные адреса S1–S5, PLZ и район S6–S8 (значения сняты 23.10.2026 на слое esb_2026). Портрет школы проверяет `npm run canary`.
+// Коды зон и число адресов — свойства слоя: на другом слое (с 1 августа) эти тесты пропускаются, идут только проверки без привязки к слою (S9).
+// Новый слой — сними значения заново и поменяй SNAPSHOT_LAYER.
 import type { APIRequestContext } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { newApi } from '../src/config.js';
+import { config, newApi } from '../src/config.js';
 import { catchment, geocode, neighbors, plzZones } from '../src/geo.js';
 import { parseAddress } from '../src/schema.js';
+
+const SNAPSHOT_LAYER = 'esb_2026';
+const onLayer = it.runIf(config.esbLayer === SNAPSHOT_LAYER);
 
 let api: APIRequestContext;
 beforeAll(async () => {
@@ -18,7 +23,7 @@ const resolveOne = async (raw: string) => {
 };
 
 describe('smoke: address → catchment → school', { timeout: 30_000 }, () => {
-  it('S1 Ruppiner Straße 47 → 0110 → 01G01 exact, neighbours 01G39/01G38', async () => {
+  onLayer('S1 Ruppiner Straße 47 → 0110 → 01G01 exact, neighbours 01G39/01G38', async () => {
     const { addr, c } = await resolveOne('Ruppiner Straße 47, 10115');
     expect(c).toMatchObject({ esb: '0110', status: 'exact', schools: [{ bsn: '01G01' }] });
     expect((await neighbors(api, addr, c.schools, 2)).map((s) => s.bsn)).toEqual(['01G39', '01G38']);
@@ -45,14 +50,14 @@ describe('smoke: address → catchment → school', { timeout: 30_000 }, () => {
     expect(c).toMatchObject({ ortsteil: 'Prenzlauer Berg', bezirk: 'Pankow' });
   });
 
-  it('S4 Feldzeugmeisterstraße 10 → 0109 ambiguous: 01G11 + 01K10', async () => {
+  onLayer('S4 Feldzeugmeisterstraße 10 → 0109 ambiguous: 01G11 + 01K10', async () => {
     const { c } = await resolveOne('Feldzeugmeisterstraße 10, 10557');
     expect(c.esb).toBe('0109');
     expect(c.status).toBe('ambiguous');
     expect(c.schools.map((s) => s.bsn).sort()).toEqual(['01G11', '01K10']);
   });
 
-  it('S5 Beusselstraße 44F → 0108 without school → 3 nearest', async () => {
+  onLayer('S5 Beusselstraße 44F → 0108 without school → 3 nearest', async () => {
     const { c } = await resolveOne('Beusselstraße 44F, 10553');
     expect(c.esb).toBe('0108');
     expect(c.status).toBe('no_school_in_zone');
@@ -61,7 +66,7 @@ describe('smoke: address → catchment → school', { timeout: 30_000 }, () => {
 });
 
 describe('smoke: PLZ → zones', { timeout: 30_000 }, () => {
-  it('S6 PLZ 10625 → 473 addresses in 4 zones, 0401 (04G01) biggest', async () => {
+  onLayer('S6 PLZ 10625 → 473 addresses in 4 zones, 0401 (04G01) biggest', async () => {
     const { total, zones } = await plzZones(api, { plz: '10625' });
     expect(total).toBe(473);
     expect(zones.map((z) => [z.esb, z.addresses])).toEqual([
@@ -73,7 +78,7 @@ describe('smoke: PLZ → zones', { timeout: 30_000 }, () => {
     expect(zones[0]).toMatchObject({ status: 'exact', schools: [{ bsn: '04G01' }] });
   });
 
-  it('S7 Schivelbeiner Str., 10439 → street split: 1–22 in 0314, 23–49 in 0311', async () => {
+  onLayer('S7 Schivelbeiner Str., 10439 → street split: 1–22 in 0314, 23–49 in 0311', async () => {
     const { total, zones } = await plzZones(api, { plz: '10439', street: 'Schivelbeiner Str.' });
     expect(total).toBe(49);
     expect(zones.map((z) => [z.esb, z.schools[0].bsn, z.streets[0].houses[0], z.streets[0].houses.at(-1)])).toEqual([
@@ -82,7 +87,7 @@ describe('smoke: PLZ → zones', { timeout: 30_000 }, () => {
     ]);
   });
 
-  it('S8 Ortsteil Friedenau → 1506 addresses in 4 zones; 0799 is the joint zone of 07G40 and 07G06 (esbOverrides)', async () => {
+  onLayer('S8 Ortsteil Friedenau → 1506 addresses in 4 zones; 0799 is the joint zone of 07G40 and 07G06 (esbOverrides)', async () => {
     const { total, zones } = await plzZones(api, { ortsteil: 'Friedenau' });
     expect(total).toBe(1506);
     expect(zones.map((z) => [z.esb, z.addresses])).toEqual([
@@ -94,5 +99,17 @@ describe('smoke: PLZ → zones', { timeout: 30_000 }, () => {
     expect(zones[3].status).toBe('joint');
     expect(zones[3].schools.map((s) => s.bsn).sort()).toEqual(['07G06', '07G40']);
     expect(zones[0].plzs[0]).toEqual({ plz: '12161', addresses: 541 });
+  });
+});
+
+describe('smoke: any zone layer', { timeout: 30_000 }, () => {
+  it('S9 address → zone of the current layer with a school; PLZ 10625 → zones by share, every address counted once', async () => {
+    const { c } = await resolveOne('Ruppiner Straße 47, 10115');
+    expect(c.esb).toMatch(/^\d{4}$/);
+    expect(c.schools.length).toBeGreaterThan(0);
+    const { total, zones } = await plzZones(api, { plz: '10625' });
+    expect(total).toBeGreaterThan(0);
+    expect(zones.map((z) => z.addresses)).toEqual([...zones.map((z) => z.addresses)].sort((a, b) => b - a));
+    expect(zones.reduce((n, z) => n + z.addresses, 0)).toBeLessThanOrEqual(total);
   });
 });

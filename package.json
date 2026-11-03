@@ -9,6 +9,7 @@
     "plz": "tsx src/cli.ts plz",
     "context": "tsx src/cli.ts context",
     "canary": "tsx src/cli.ts canary",
+    "stale": "tsx src/cli.ts stale",
     "test:smoke": "vitest run tests/smoke",
     "typecheck": "tsc --noEmit",
     "preflight": "tsx src/cli.ts preflight",

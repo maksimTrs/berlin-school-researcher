@@ -218,19 +218,28 @@ export function districtFacts(fetchUrl: (url: string) => Promise<Fetched>, snap:
 // ---------- canary ----------
 
 /**
- * Снимок ещё совпадает с сайтом: документ открывается, в инвестплане разбираются строки, цитаты решения о зонах на месте,
+ * Снимок устарел по календарю — без сети (canary и проверка на старте сессии): отчёты иначе молча теряют строки —
+ * решение о прошлом слое зон не показывается, план прошлого года неполон.
+ */
+export function districtStale(snap: District, now = new Date()): string[] {
+  const month = contextWindow(now).now;
+  const monthOfDay = (d: string) => Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7)) - 1;
+  return snap.documents.flatMap((doc) =>
+    doc.kind === 'catchment' && doc.layer < currentEsbLayer(now)
+      ? [`${doc.url}: решение о зонах для ${doc.layer}, а текущий слой — ${currentEsbLayer(now)}; в отчёты оно больше не идёт — найди решение Bezirksamt о Zuschneidung der Einschulungsbereiche под новый слой или удали запись`]
+      : doc.kind === 'investment' && month - monthOfDay(doc.checked ?? doc.published) > PLAN_MAX_AGE_MONTHS
+        ? [`${doc.url}: заявке в инвестпрограмму от ${doc.published} больше ${PLAN_MAX_AGE_MONTHS} мес. — найди на сайте Bezirksamt новую (Anmeldungen zum Investitionsprogramm) и замени запись; новее нет — поставь checked: дату проверки`]
+        : [],
+  );
+}
+
+/**
+ * Снимок ещё совпадает с сайтом: не устарел по календарю, документ открывается, в инвестплане разбираются строки, цитаты решения о зонах на месте,
  * пересказ без чужих чисел, страница решения Bezirksamt называет эту дату и ссылается на документ.
  */
 export async function verifyDistrict(snap: District, fetchUrl: (url: string) => Promise<Fetched>, now = new Date()): Promise<string[]> {
-  const problems: string[] = [];
-  const month = contextWindow(now).now;
-  const monthOfDay = (d: string) => Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7)) - 1;
+  const problems = districtStale(snap, now);
   for (const doc of snap.documents) {
-    // снимок устарел — отчёты молча теряют строки: решение о прошлом слое зон не показывается, план прошлого года неполон
-    if (doc.kind === 'catchment' && doc.layer < currentEsbLayer(now))
-      problems.push(`${doc.url}: решение о зонах для ${doc.layer}, а текущий слой — ${currentEsbLayer(now)}; в отчёты оно больше не идёт — найди решение Bezirksamt о Zuschneidung der Einschulungsbereiche под новый слой или удали запись`);
-    if (doc.kind === 'investment' && month - monthOfDay(doc.checked ?? doc.published) > PLAN_MAX_AGE_MONTHS)
-      problems.push(`${doc.url}: заявке в инвестпрограмму от ${doc.published} больше ${PLAN_MAX_AGE_MONTHS} мес. — найди на сайте Bezirksamt новую (Anmeldungen zum Investitionsprogramm) и замени запись; новее нет — поставь checked: дату проверки`);
     try {
       const t = await loadDoc(fetchUrl, doc.url);
       if (doc.kind === 'investment') {

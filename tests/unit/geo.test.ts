@@ -1,6 +1,6 @@
 import type { APIRequestContext } from 'playwright';
 import { describe, expect, it } from 'vitest';
-import { config, currentEsbLayer } from '../../src/config.js';
+import { berlinDay, config, currentEsbLayer } from '../../src/config.js';
 import { checkWithoutZone, geocode, overridesStale, groupByZone, noZoneSchools, onStreet, plzZones, resolveStatus, schoolsCql, type Feature } from '../../src/geo.js';
 
 // ответ WFS, как его отдаёт Playwright APIResponse
@@ -167,5 +167,13 @@ describe('esbOverrides after a zone layer switch', () => {
     expect(overridesStale('esb_2026', 'esb_2027')).toEqual([
       'esbOverrides: поправки сверены по слою esb_2026, а текущий — esb_2027: сверь каждую с источником (таблица в README) и новым слоем, затем поставь esbOverridesLayer: "esb_2027"',
     ]);
+  });
+});
+
+describe('report dates in Berlin time', () => {
+  it('00:30 in Berlin is already the next day, though UTC is still on the previous one', () => {
+    expect(berlinDay('2026-11-03T23:30:00Z')).toBe('2026-11-04'); // CET, UTC+1
+    expect(berlinDay('2026-07-01T21:59:00Z')).toBe('2026-07-01'); // CEST, UTC+2
+    expect(berlinDay('2026-07-01T22:00:00Z')).toBe('2026-07-02');
   });
 });

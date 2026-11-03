@@ -23,7 +23,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/install_pkgs.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/install_pkgs.sh; bash \"$CLAUDE_PROJECT_DIR\"/scripts/stale_check.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/canary-hook.mjs",
+            "asyncRewake": true,
+            "timeout": 1800
           }
         ]
       }

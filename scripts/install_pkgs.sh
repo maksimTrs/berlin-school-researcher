@@ -18,4 +18,6 @@ fi
 # --no-install: без node_modules не тянуть из registry другую версию playwright.
 # Без загрузки, если браузер этой версии уже поставил setup script окружения.
 npx --no-install playwright install chromium >&2
+# зависимости готовы — фоновый canary (scripts/canary-hook.mjs) ждёт этот файл
+mkdir -p out/.canary && date > out/.canary/deps-ready
 exit 0

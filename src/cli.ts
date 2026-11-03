@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
 import { AddressContextSchema, claudeSearched, Draft, farPlan, fetchFollowing, onSchoolSite, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
-import { district, districtFacts, verifyDistrict } from './district.js';
+import { district, districtFacts, districtStale, verifyDistrict } from './district.js';
 import { currentFigures, KEY_FIGURES, keyFigure, type Profile } from './extract.js';
 import { basemap, catchment, checkOverrides, checkWithoutZone, formatAddress, geocode, neighbors, onStreet, overridesStale, overrideIgnored, plzZones, primarySchools, resolveStatus, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
@@ -522,6 +522,15 @@ async function canaryCmd() {
   if (problems.length) process.exitCode = 1;
 }
 
+/**
+ * Снимки, устаревшие по календарю, — без сети, за секунду (SessionStart hook на каждом старте сессии; полный canary — раз в неделю):
+ * заявка округа в инвестпрограмму, решение о зонах прошлого слоя, esbOverrides прошлого слоя. Всё в порядке — stdout пустой.
+ */
+async function staleCmd() {
+  const problems = [...districtStale(district()).map((p) => `config/district.json: ${p}`), ...overridesStale()];
+  if (problems.length) console.log(problems.map((p) => `- ${p}`).join('\n'));
+}
+
 /** Перезаписывает снимок списка Startchancen с сайта; что изменилось — в stdout. */
 async function startchancenCmd() {
   const api = await newApi();
@@ -546,13 +555,14 @@ const commands: Record<string, () => Promise<void>> = {
   plz: plzCmd,
   context: contextCmd,
   canary: canaryCmd,
+  stale: staleCmd,
   preflight: preflightCmd,
   startchancen: startchancenCmd,
 };
 const cmd = commands[positionals[0]];
 if (!cmd) {
   console.error(
-    'Использование: tsx src/cli.ts resolve|lookup|plz|context|canary|preflight|startchancen [--input f.json | --address "..." | --plz 10439 | --ortsteil Friedenau [--street "..."] | plz --input plz-input.json | --dir out/<адрес>] [--headed --slowmo N --trace]',
+    'Использование: tsx src/cli.ts resolve|lookup|plz|context|canary|stale|preflight|startchancen [--input f.json | --address "..." | --plz 10439 | --ortsteil Friedenau [--street "..."] | plz --input plz-input.json | --dir out/<адрес>] [--headed --slowmo N --trace]',
   );
   process.exit(2);
 }

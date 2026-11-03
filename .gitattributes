@@ -1,0 +1,2 @@
+# скрипты хуков запускает bash: с CRLF (core.autocrlf на Windows) он падает на символе возврата каретки
+*.sh text eol=lf
