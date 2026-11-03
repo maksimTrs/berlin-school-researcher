@@ -2,13 +2,15 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ContextSchema, Draft, findQuote, foreignNumbers, normalize, pageText, verifyDraft, type DraftItem, type Fetched } from '../../src/context.js';
 import { schulamt } from '../../src/schulamt.js';
-import { district, districtFacts, investmentCategory, investmentInWindow, investmentSummary, parseInvestment, PLAN_MAX_AGE_MONTHS, verifyDistrict, type District } from '../../src/district.js';
+import { district, districtFacts, parseDistrict, investmentCategory, investmentInWindow, investmentSummary, parseInvestment, PLAN_MAX_AGE_MONTHS, verifyDistrict, type District } from '../../src/district.js';
 
 // реальные документы Bezirksamt Charlottenburg-Wilmersdorf: инвестплан (Beschluss 25.02.2025), решение о зонах (17.06.2025) и страницы решений
 const fixture = (name: string) => readFileSync(new URL(`../fixtures/${name}`, import.meta.url));
 type Doc = District['documents'][number];
-const INVEST = district().documents.find((d) => d.kind === 'investment')!;
-const CATCHMENT = district().documents.find((d): d is Extract<Doc, { kind: 'catchment' }> => d.kind === 'catchment')!;
+// своя копия снимка: обновление config/district.json (новая заявка, решение под новый слой) не ломает тесты разбора на этих fixtures
+const SNAP = parseDistrict(JSON.parse(fixture('district_snapshot_04.json').toString('utf8')));
+const INVEST = SNAP.documents.find((d) => d.kind === 'investment')!;
+const CATCHMENT = SNAP.documents.find((d): d is Extract<Doc, { kind: 'catchment' }> => d.kind === 'catchment')!;
 const FILES: Record<string, [string, string]> = {
   [INVEST.url]: ['district_investment_04.pdf', 'application/pdf'],
   [CATCHMENT.url]: ['district_catchment_04.pdf', 'application/pdf'],
@@ -69,7 +71,7 @@ describe('investment plan rows', () => {
 });
 
 describe('district facts of a school', () => {
-  const facts = districtFacts(fetchFixture);
+  const facts = districtFacts(fetchFixture, SNAP);
 
   it('investment rows and the catchment decision for the school, the same on every run', async () => {
     const f = await facts({ bsn: '04G20', name: 'Katharina-Heinroth-Grundschule', bezirk: CW }, NOW);
@@ -95,7 +97,7 @@ describe('district facts of a school', () => {
 
   it('a document that does not load, or a snapshot quote gone from it, is a rejected line', async () => {
     const broken: District = {
-      ...district(),
+      ...SNAP,
       documents: [
         { ...INVEST, url: 'https://www.berlin.de/ba-charlottenburg-wilmersdorf/gone.pdf' },
         { ...CATCHMENT, items: [{ bsn: ['04G23'], category: 'capacity', quote: 'Die Alt-Schmargendorf-Grundschule (04G23) hat freie Plätze in allen Klassen.', summaryRu: 'Свободные места' }] },
@@ -135,7 +137,7 @@ describe('district facts of a school', () => {
 });
 
 describe('district facts: corner cases', () => {
-  const facts = districtFacts(fetchFixture);
+  const facts = districtFacts(fetchFixture, SNAP);
   const item = (url: string, quote: string): DraftItem => ({ category: 'catchment', published: '2025-06', planned: null, url, quote, summaryRu: 'Зону школы расширили', contradicts: null });
 
   it('the catchment decision covers only schools quoted in the snapshot: a fact about another school of the document is checked as usual', async () => {
@@ -214,7 +216,7 @@ describe('district snapshot', () => {
   });
 
   it('canary: documents parse, quotes are in place, decision pages name the date and link the document', async () => {
-    expect(await verifyDistrict(district(), fetchFixture, FRESH)).toEqual([]);
+    expect(await verifyDistrict(SNAP, fetchFixture, FRESH)).toEqual([]);
   });
 
   it('canary: a plan without parsable rows and a decision page without the link are named', async () => {
@@ -232,7 +234,7 @@ describe('district snapshot', () => {
 
   it('canary: a different decision date and a lost quote are named', async () => {
     const snap: District = {
-      ...district(),
+      ...SNAP,
       documents: [{ ...INVEST, published: '2025-02-11' }, { ...CATCHMENT, items: [{ ...CATCHMENT.items[0], quote: 'Ein Satz, den es im Dokument nicht gibt, Versorgungsdefizit.' }] }],
     };
     expect(await verifyDistrict(snap, fetchFixture, FRESH)).toEqual([

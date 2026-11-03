@@ -351,6 +351,13 @@ export function contextWindow(now: Date) {
 export const longTerm = (item: Pick<DraftItem, 'planned'>, plannedTo: string) => !!item.planned && monthIndex(item.planned) > monthIndex(plannedTo);
 
 /**
+ * «🗓 Дальние планы» в отчёте и longTerm в stdout context: только стройка из поиска Claude. Санация из инвестплана округа —
+ * строкой «Плановый ремонт», пристройка из плана (тема «Места») — рядом с дефицитом мест.
+ */
+export const farPlan = (item: Pick<ContextItem, 'category' | 'planned' | 'rule'>, plannedTo: string) =>
+  item.category === 'construction' && item.rule !== 'district' && longTerm(item, plannedTo);
+
+/**
  * Публикация за последние pastMonths или план, который наступит в ближайшие futureMonths
  * (стройка — constructionFutureMonths: ребёнок проучится в начальной школе ~6 лет). null — подходит.
  */

@@ -12,6 +12,8 @@ const Config = z.object({
   // приоритет над пространственным сопоставлением. Коды зон — слоя текущего учебного года (currentEsbLayer): после 1 августа canary сверяет их с новым
   esbOverrides: z.record(z.string(), z.union([z.string().regex(/^\d{2}[A-Z]\d{2}$/), z.array(z.string().regex(/^\d{2}[A-Z]\d{2}$/)).min(2).refine((l) => new Set(l).size === l.length, 'школа дважды в поправке')])),
   // школы без своей зоны (SESB — «überbezirkliches Angebot»), стоящие в чужой: bsn → почему, строкой в отчёт; источник — таблица в README
+  // слой зон, по которому поправки сверены с источниками (таблица в README): сменился слой — canary просит пересверить
+  esbOverridesLayer: z.string().regex(/^esb_\d{4}$/),
   schoolsWithoutZone: z.record(z.string().regex(/^\d{2}[A-Z]\d{2}$/), z.string().min(10)),
   // факты из официальных источников в начале отчёта (src/context.ts)
   context: z.object({

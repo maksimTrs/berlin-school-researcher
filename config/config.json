@@ -5,6 +5,7 @@
   "defaultAddress": "Ruppiner Straße 47, 10115",
   "viewport": { "width": 1440, "height": 900 },
   "esbOverrides": { "0799": ["07G40", "07G06"], "0457": "04S07" },
+  "esbOverridesLayer": "esb_2026",
   "schoolsWithoutZone": {
     "04G27": "Staatliche Europa-Schule Berlin: «überbezirkliches Angebot, für das keine Einschulungsbereiche festgelegt sind» (Senat, Drs. 18/11266)"
   },

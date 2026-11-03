@@ -22,7 +22,7 @@ import type { School } from './geo.js';
 /**
  * Документы округа, которые веб-поиск находит через раз: инвестплан (таблица строк по школам) и решение о зонах.
  * Код сам скачивает каждый документ и берёт строки по BSN — факты одинаковы при каждом прогоне.
- * Дата — дата решения Bezirksamt (`decision`): в самих PDF даты решения нет. `canary` сверяет снимок с сайтом.
+ * Дата — `published`: дата решения Bezirksamt со страницы `decision` (в самих PDF её нет). `canary` сверяет снимок с сайтом.
  */
 const FILE = new URL('../config/district.json', import.meta.url);
 
@@ -65,7 +65,8 @@ const Snapshot = z.object({
 export type District = z.infer<typeof Snapshot>;
 
 let snapshot: District | undefined;
-export const district = () => (snapshot ??= Snapshot.parse(JSON.parse(readFileSync(FILE, 'utf8'))));
+export const parseDistrict = (json: unknown): District => Snapshot.parse(json);
+export const district = () => (snapshot ??= parseDistrict(JSON.parse(readFileSync(FILE, 'utf8'))));
 
 // ---------- инвестплан ----------
 

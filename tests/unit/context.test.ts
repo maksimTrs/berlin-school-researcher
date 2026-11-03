@@ -7,6 +7,7 @@ import {
   ContextSchema,
   Draft,
   claudeSearched,
+  farPlan,
   PlzContextSchema,
   PlzDraft,
   fetchFollowing,
@@ -758,6 +759,7 @@ describe('PLZ', () => {
   it('a school without a Claude search in a PLZ report: no "nothing found", district facts marked as not searched', async () => {
     const ctx = await verifyDraft({ bsn: '09G06', queries: [], items: [] }, MELLI, profile, fetchFixture, NOW);
     expect(renderPlzReport(result, { schools: [ctx] })).not.toContain('не найдено');
+    expect(renderPlzReport(result, { schools: [ctx] })).not.toContain('каждый факт сверен'); // окно поиска не показываем: поиска не было
     const plan = { category: 'capacity' as const, published: '2025-02-25', planned: '2028', url: PRESS_URL, quote: 'x'.repeat(30), summaryRu: 'Заявка — Erweiterungsbau, окончание — 2028', contradicts: null, host: 'www.berlin.de', source: 'official' as const, rule: 'district' as const };
     expect(renderPlzReport(result, { schools: [{ ...ctx, items: [plan] }] })).toContain('Веб-поиск по школе не проводился');
   });
@@ -825,5 +827,15 @@ describe('PLZ', () => {
     expect(melliBlock.match(/<li>/g)).toHaveLength(3);
     expect(html.slice(html.indexOf('<h3>Schule am Ginkobaum'))).toContain('Официальных сообщений о школе за период не найдено.');
     expect(html).toContain('Проверено 2026-10-23');
+  });
+});
+
+describe('far plans', () => {
+  it('only construction from the search is a far plan; district rows are a repair line or sit next to the deficit', () => {
+    const far = { category: 'construction' as const, planned: '2030', rule: undefined };
+    expect(farPlan(far, '2027-05')).toBe(true);
+    expect(farPlan({ ...far, planned: '2027' }, '2027-05')).toBe(false);
+    expect(farPlan({ ...far, rule: 'district' as const }, '2027-05')).toBe(false);
+    expect(farPlan({ ...far, category: 'capacity' as const }, '2027-05')).toBe(false);
   });
 });

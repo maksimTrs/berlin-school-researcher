@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { config } from './config.js';
-import { CATEGORIES, longTerm, PRIORITY, type Category, type Context, type PlzContext } from './context.js';
+import { CATEGORIES, farPlan, PRIORITY, type Category, type Context, type PlzContext } from './context.js';
 import { fehlGrades, KEY_FIGURES, keyFigure, PAGES, type PageKey } from './extract.js';
 import { formatAddress, type Candidate, type Catchment, type ExcludedByOrtsteil, type School, type ZoneShare } from './geo.js';
 import type { SchoolData, YearPage } from './portrait.js';
@@ -254,7 +254,7 @@ function factsList(ctx: Context): string {
   const repairs = ctx.items.filter((i) => i.rule === 'district' && i.category === 'construction');
   const rest = ctx.items.filter((i) => !repairs.includes(i));
   // дальний план — только у стройки; пристройка из плана (тема «Места») остаётся рядом с дефицитом мест
-  const isFar = (i: Context['items'][number]) => i.category === 'construction' && longTerm(i, ctx.window.plannedTo);
+  const isFar = (i: Context['items'][number]) => farPlan(i, ctx.window.plannedTo);
   const near = rest.filter((i) => !isFar(i)).sort((a, b) => PRIORITY[a.category] - PRIORITY[b.category] || b.published.localeCompare(a.published));
   const far = rest.filter(isFar);
   const source = (i: Context['items'][number]) => `<small>${esc(SOURCE[i.source])}${link(i.url, i.host)}</small>`;
@@ -778,7 +778,7 @@ ${zuzugBlock()}
 <section>
   <h2>Школы</h2>
   ${schoolSections}
-  ${ctx?.schools[0] ? checkedNote(ctx.schools[0]) : ''}
+  ${ctx?.schools.find(searched) ? checkedNote(ctx.schools.find(searched)!) : ''}
 </section>
 
 <section>

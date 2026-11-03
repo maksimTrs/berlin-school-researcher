@@ -1,7 +1,7 @@
 import type { APIRequestContext } from 'playwright';
 import { describe, expect, it } from 'vitest';
 import { config, currentEsbLayer } from '../../src/config.js';
-import { checkWithoutZone, geocode, groupByZone, noZoneSchools, onStreet, plzZones, resolveStatus, schoolsCql, type Feature } from '../../src/geo.js';
+import { checkWithoutZone, geocode, overridesStale, groupByZone, noZoneSchools, onStreet, plzZones, resolveStatus, schoolsCql, type Feature } from '../../src/geo.js';
 
 // ответ WFS, как его отдаёт Playwright APIResponse
 const wfsResponse = (body: object) => ({ ok: () => true, headers: () => ({ 'content-type': 'application/json' }), text: async () => JSON.stringify(body) });
@@ -158,5 +158,14 @@ describe('onStreet / WFS / zone holes', () => {
     const at = (lon: number) => ({ street: 'X', house: 1, suffix: null, lon, lat: lon });
     const groups = groupByZone([at(5), at(1)], [outer, enclave]);
     expect(Object.fromEntries(groups.map((g) => [g.zone.id, g.addrs.map((a) => a.lon)]))).toEqual({ A: [1], B: [5] });
+  });
+});
+
+describe('esbOverrides after a zone layer switch', () => {
+  it('overrides checked on the previous layer are named until esbOverridesLayer is updated', () => {
+    expect(overridesStale('esb_2026', 'esb_2026')).toEqual([]);
+    expect(overridesStale('esb_2026', 'esb_2027')).toEqual([
+      'esbOverrides: поправки сверены по слою esb_2026, а текущий — esb_2027: сверь каждую с источником (таблица в README) и новым слоем, затем поставь esbOverridesLayer: "esb_2027"',
+    ]);
   });
 });

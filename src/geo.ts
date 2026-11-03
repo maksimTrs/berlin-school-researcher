@@ -322,6 +322,15 @@ export function overrideIgnored(c: Pick<Catchment, 'esb' | 'status'>, overrides 
 }
 
 /** Для canary: каждый код зоны из esbOverrides есть в слое esbLayer, каждая школа — в реестре. Пустой список — всё на месте. */
+/**
+ * Поправки сверены по прошлому слою: код зоны в новом слое может остаться, а сама зона — измениться (общую зону разделили,
+ * код отдали другой территории), и поправка молча дала бы не ту школу. canary просит пересверить и обновить esbOverridesLayer.
+ */
+export const overridesStale = (checked = config.esbOverridesLayer, current = config.esbLayer): string[] =>
+  checked === current
+    ? []
+    : [`esbOverrides: поправки сверены по слою ${checked}, а текущий — ${current}: сверь каждую с источником (таблица в README) и новым слоем, затем поставь esbOverridesLayer: "${current}"`];
+
 export async function checkOverrides(api: APIRequestContext, overrides = config.esbOverrides): Promise<string[]> {
   const known = new Set((await primarySchools(api)).map((s) => s.bsn));
   const problems: string[] = [];

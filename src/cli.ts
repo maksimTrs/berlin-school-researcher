@@ -2,10 +2,10 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
-import { AddressContextSchema, claudeSearched, Draft, fetchFollowing, longTerm, onSchoolSite, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
+import { AddressContextSchema, claudeSearched, Draft, farPlan, fetchFollowing, onSchoolSite, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
 import { district, districtFacts, verifyDistrict } from './district.js';
 import { currentFigures, KEY_FIGURES, keyFigure, type Profile } from './extract.js';
-import { basemap, catchment, checkOverrides, checkWithoutZone, formatAddress, geocode, neighbors, onStreet, overrideIgnored, plzZones, primarySchools, resolveStatus, type School } from './geo.js';
+import { basemap, catchment, checkOverrides, checkWithoutZone, formatAddress, geocode, neighbors, onStreet, overridesStale, overrideIgnored, plzZones, primarySchools, resolveStatus, type School } from './geo.js';
 import { collectSchool, launchBrowser } from './portrait.js';
 import { firstLine, preflight } from './preflight.js';
 import {
@@ -89,7 +89,20 @@ async function districtOnly(facts: Facts, school: School, profile: Profile, fetc
  * context.json без поиска Claude (его писали lookup/plz) пересчитывается при каждом прогоне — иначе сбой berlin.de (429)
  * застревал бы в нём навсегда; с находками Claude — не трогаем, его обновляет npm run context.
  */
-const districtOnlyContext = (dir: string) => !claudeSearched(readContext(dir, AddressContextSchema));
+const districtOnlyContext = (dir: string) => {
+  if (!existsSync(join(dir, 'context.json'))) return true;
+  const ctx = readContext(dir, AddressContextSchema);
+  return ctx !== null && !claudeSearched(ctx); // файл не читается — не трогаем: в нём могут быть проверенные находки Claude
+};
+
+/** Испорченный config/district.json не должен стоить отчёта после прогона браузера: отчёт — без фактов округа, причина — в stderr. */
+async function keepReport(step: () => Promise<void>) {
+  try {
+    await step();
+  } catch (e) {
+    console.error(`⚠️ Документы округа пропущены: ${firstLine(e)} — проверь config/district.json (npm test)`);
+  }
+}
 
 function writeDistrictContext(dir: string, found: Context[], joint: boolean) {
   if (found.length) writeFileSync(join(dir, 'context.json'), JSON.stringify(joint ? { schools: found } : found[0], null, 2));
@@ -148,11 +161,13 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
     // документы округа — и без Claude: первый прогон пишет context.json с ними; npm run context потом добавит находки поиска
     if (districtOnlyContext(dir)) {
-      const fetchUrl = fetchFollowing(api);
-      const facts = districtFacts(fetchUrl);
-      const assigned = schools.filter((s) => s.role === 'main' || s.role === 'joint');
-      const found = (await Promise.all(assigned.map((s) => districtOnly(facts, s.school, s.data.profile, fetchUrl, config.context.maxItems)))).filter((x) => x !== null);
-      writeDistrictContext(dir, found, c.status === 'joint');
+      await keepReport(async () => {
+        const fetchUrl = fetchFollowing(api);
+        const facts = districtFacts(fetchUrl);
+        const assigned = schools.filter((s) => s.role === 'main' || s.role === 'joint');
+        const found = (await Promise.all(assigned.map((s) => districtOnly(facts, s.school, s.data.profile, fetchUrl, config.context.maxItems)))).filter((x) => x !== null);
+        writeDistrictContext(dir, found, c.status === 'joint');
+      });
     }
     // проверенные факты прошлого прогона не теряются при повторном lookup; дата проверки — в отчёте
     writeFileSync(join(dir, 'report.html'), renderReport(result, readContext(dir, AddressContextSchema)));
@@ -164,7 +179,7 @@ async function lookupOne(q: AddressQuery): Promise<{ result: AddressResult; dir:
 
 const brief = (ctx: Context) => ({
   bsn: ctx.bsn,
-  items: ctx.items.map((i) => ({ category: i.category, published: i.published, planned: i.planned, longTerm: longTerm(i, ctx.window.plannedTo), summaryRu: i.summaryRu, url: i.url })),
+  items: ctx.items.map((i) => ({ category: i.category, published: i.published, planned: i.planned, longTerm: farPlan(i, ctx.window.plannedTo), rule: i.rule, summaryRu: i.summaryRu, url: i.url })),
   rejected: ctx.rejected,
 });
 
@@ -206,11 +221,13 @@ async function contextCmd() {
     const result = raw as AddressResult;
     const main = result.schools[0];
     if (result.status !== 'ok' || !main) throw new Error(`${dir}: в result.json нет закреплённой школы`);
-    if (typeof draftJson === 'object' && draftJson !== null && 'schools' in draftJson) {
-      // общая зона: по черновику на каждую закреплённую школу (main и joint)
+    const many = typeof draftJson === 'object' && draftJson !== null && 'schools' in draftJson;
+    if (many || result.schools.some((x) => x.role === 'joint')) {
+      // общая зона: по черновику на каждую закреплённую школу (main и joint); одиночный черновик — только о main,
+      // остальным школам зоны — факты округа (иначе context.json потерял бы то, что о них записал lookup)
       const ctx: PlzContext = { schools: [] };
       const skipped: { bsn: string; reason: string }[] = [];
-      for (const d of PlzDraft.parse(draftJson).schools) {
+      for (const d of many ? PlzDraft.parse(draftJson).schools : [Draft.parse(draftJson)]) {
         const s = result.schools.find((x) => x.school.bsn === d.bsn && (x.role === 'main' || x.role === 'joint'));
         const assigned = result.catchment?.schools.some((x) => x.bsn === d.bsn);
         if (!s) skipped.push({ bsn: d.bsn, reason: assigned ? 'нет данных в result.json (Schulporträt не загрузился)' : 'не закреплённая школа этого адреса' });
@@ -360,14 +377,16 @@ async function plzOne(q: PlzQuery): Promise<{ result: PlzResult; dir: string | n
     writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, 2));
     // документы округа — каждой школе зон и без Claude (как в lookup)
     if (districtOnlyContext(dir)) {
-      const fetchUrl = fetchFollowing(api);
-      const facts = districtFacts(fetchUrl);
-      const found: Context[] = [];
-      for (const s of schools) {
-        const ctx = await districtOnly(facts, s.school, s.data.profile, fetchUrl, config.context.plzMaxItemsPerSchool);
-        if (ctx) found.push(ctx);
-      }
-      writeDistrictContext(dir, found, true);
+      await keepReport(async () => {
+        const fetchUrl = fetchFollowing(api);
+        const facts = districtFacts(fetchUrl);
+        const found: Context[] = [];
+        for (const s of schools) {
+          const ctx = await districtOnly(facts, s.school, s.data.profile, fetchUrl, config.context.plzMaxItemsPerSchool);
+          if (ctx) found.push(ctx);
+        }
+        writeDistrictContext(dir, found, true);
+      });
     }
     writeFileSync(join(dir, 'report.html'), renderPlzReport(result, readContext(dir, PlzContextSchema), readBasemap(dir)));
     return { result, dir };
@@ -479,7 +498,7 @@ async function canaryCmd() {
         : [];
     });
     // поправки зон ещё указывают на существующие зону слоя и школы
-    await check('esbOverrides', () => checkOverrides(api));
+    await check('esbOverrides', async () => [...overridesStale(), ...(await checkOverrides(api))]);
     // школы без своей зоны ещё в реестре и всё ещё без зоны — иначе устаревшая запись вычёркивала бы кандидата
     await check('schoolsWithoutZone', () => checkWithoutZone(api));
     // правила переезда посреди года: цитаты снимка ещё дословно в документах SenBJF
