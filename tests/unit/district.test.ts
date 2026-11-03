@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ContextSchema, Draft, findQuote, foreignNumbers, normalize, pageText, verifyDraft, type DraftItem, type Fetched } from '../../src/context.js';
 import { schulamt } from '../../src/schulamt.js';
-import { district, districtFacts, parseDistrict, investmentCategory, investmentInWindow, investmentSummary, parseInvestment, PLAN_MAX_AGE_MONTHS, verifyDistrict, type District } from '../../src/district.js';
+import { district, districtFacts, parseDistrict, RECHECK_MONTHS, investmentCategory, investmentInWindow, investmentSummary, parseInvestment, PLAN_MAX_AGE_MONTHS, verifyDistrict, type District } from '../../src/district.js';
 
 // реальные документы Bezirksamt Charlottenburg-Wilmersdorf: инвестплан (Beschluss 25.02.2025), решение о зонах (17.06.2025) и страницы решений
 const fixture = (name: string) => readFileSync(new URL(`../fixtures/${name}`, import.meta.url));
@@ -247,8 +247,12 @@ describe('district snapshot', () => {
     const stale = `${INVEST.url}: заявке в инвестпрограмму от 2025-02-25 больше ${PLAN_MAX_AGE_MONTHS} мес. — найди на сайте Bezirksamt новую (Anmeldungen zum Investitionsprogramm) и замени запись; новее нет — поставь checked: дату проверки`;
     expect(await verifyDistrict({ documents: [INVEST] }, fetchFixture, new Date('2026-05-02T12:00:00Z'))).toEqual([]); // 14 мес.
     expect(await verifyDistrict({ documents: [INVEST] }, fetchFixture, new Date('2026-06-02T12:00:00Z'))).toEqual([stale]); // 16 мес.
-    expect(await verifyDistrict({ documents: [{ ...INVEST, checked: '2026-10-20' }] }, fetchFixture, NOW)).toEqual([]);
-    expect(await verifyDistrict({ documents: [{ ...INVEST, checked: '2026-10-20' }] }, fetchFixture, new Date('2028-02-01T12:00:00Z'))).toEqual([stale]);
+    // checked: новой нет на эту дату — снова через RECHECK_MONTHS, к следующей весне
+    const recheck = `${INVEST.url}: новее заявки от 2025-02-25 не было на 2026-10-20, с тех пор больше ${RECHECK_MONTHS} мес. — проверь Beschlüsse округа снова: вышла новая — замени запись, нет — обнови checked`;
+    const checked = { documents: [{ ...INVEST, checked: '2026-10-20' }] };
+    expect(await verifyDistrict(checked, fetchFixture, NOW)).toEqual([]);
+    expect(await verifyDistrict(checked, fetchFixture, new Date('2027-04-15T12:00:00Z'))).toEqual([]); // 6 мес.
+    expect(await verifyDistrict(checked, fetchFixture, new Date('2027-05-02T12:00:00Z'))).toEqual([recheck]); // 7 мес.
   });
 
   it('canary: a catchment decision for a past zone layer is named — reports stop showing it on 1 August', async () => {

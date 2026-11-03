@@ -32,12 +32,14 @@ const Day = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/);
 const Common = { bezirk: z.string().min(3), url: z.string().url(), title: z.string().min(5), published: Day, decision: z.string().url() };
 // инвестплан Bezirksamt подаёт каждую весну (на следующие 5 лет): заявка старше этого — canary просит проверить, нет ли новой
 export const PLAN_MAX_AGE_MONTHS = 15;
+// новой заявки не нашли (checked) — проверить снова через полгода: к следующей весне, а не через 15 месяцев от проверки
+export const RECHECK_MONTHS = 6;
 
 const Snapshot = z.object({
   documents: z.array(
     z.discriminatedUnion('kind', [
       // инвестплан: строка — до года окончания стройки (EndeBau)
-      // checked — дата, когда на сайте Bezirksamt проверили, что новее этой заявки нет (срок PLAN_MAX_AGE_MONTHS считается от неё)
+      // checked — дата, когда на сайте Bezirksamt проверили, что новее этой заявки нет: следующая проверка — через RECHECK_MONTHS
       z.object({ kind: z.literal('investment'), ...Common, checked: Day.optional() }).strict(),
       // решение о зонах: действует, пока идёт слой зон, под который принято; цитаты — дословно из документа
       z
@@ -227,9 +229,11 @@ export function districtStale(snap: District, now = new Date()): string[] {
   return snap.documents.flatMap((doc) =>
     doc.kind === 'catchment' && doc.layer < currentEsbLayer(now)
       ? [`${doc.url}: решение о зонах для ${doc.layer}, а текущий слой — ${currentEsbLayer(now)}; в отчёты оно больше не идёт — найди решение Bezirksamt о Zuschneidung der Einschulungsbereiche под новый слой или удали запись`]
-      : doc.kind === 'investment' && month - monthOfDay(doc.checked ?? doc.published) > PLAN_MAX_AGE_MONTHS
+      : doc.kind === 'investment' && !doc.checked && month - monthOfDay(doc.published) > PLAN_MAX_AGE_MONTHS
         ? [`${doc.url}: заявке в инвестпрограмму от ${doc.published} больше ${PLAN_MAX_AGE_MONTHS} мес. — найди на сайте Bezirksamt новую (Anmeldungen zum Investitionsprogramm) и замени запись; новее нет — поставь checked: дату проверки`]
-        : [],
+        : doc.kind === 'investment' && doc.checked && month - monthOfDay(doc.checked) > RECHECK_MONTHS
+          ? [`${doc.url}: новее заявки от ${doc.published} не было на ${doc.checked}, с тех пор больше ${RECHECK_MONTHS} мес. — проверь Beschlüsse округа снова: вышла новая — замени запись, нет — обнови checked`]
+          : [],
   );
 }
 
