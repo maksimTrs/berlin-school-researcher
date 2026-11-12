@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { config, newApi } from './config.js';
-import { AddressContextSchema, claudeSearched, Draft, farPlan, fetchFollowing, onSchoolSite, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
+import { AddressContextSchema, claudeSearched, Draft, farPlan, fetchFollowing, onSchoolSite, paced, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
 import { district, districtFacts, districtStale, verifyDistrict } from './district.js';
 import { currentFigures, KEY_FIGURES, keyFigure, type Profile } from './extract.js';
 import { basemap, catchment, checkOverrides, checkWithoutZone, formatAddress, geocode, neighbors, onStreet, overridesStale, overrideIgnored, plzZones, primarySchools, resolveStatus, type School } from './geo.js';
@@ -462,6 +462,9 @@ async function plzCmd() {
  * Ежемесячная проверка: эталонный адрес проходит весь путь, ключевые подстраницы текущего года отдают данные,
  * входы маркера — за каждый год тренда; снимки Startchancen, правил переезда и Schulamt округов совпадают с сайтами.
  */
+// сверки снимков шлют на berlin.de десятки запросов подряд: без паузы последние получают 429 (сайт просит Retry-After: 2)
+const CANARY_PAUSE_MS = 2500;
+
 async function canaryCmd() {
   if (!(await sitesAvailable())) return;
   const problems: string[] = [];
@@ -487,6 +490,7 @@ async function canaryCmd() {
   }
   // сверки снимков и поправок с сайтами: сбой одной — строка в problems, остальные всё равно идут
   const api = await newApi();
+  const fetchUrl = paced(fetchFollowing(api), CANARY_PAUSE_MS);
   const check = async (what: string, run: () => Promise<string[]>) =>
     problems.push(...(await run().catch((e) => [`${what}: ${firstLine(e)} — не сверено`])));
   try {
@@ -503,16 +507,16 @@ async function canaryCmd() {
     await check('schoolsWithoutZone', () => checkWithoutZone(api));
     // правила переезда посреди года: цитаты снимка ещё дословно в документах SenBJF
     await check('Переезд (config/zuzug.json)', async () =>
-      (await verifyZuzug(zuzug(), fetchFollowing(api))).map((p) => `Переезд (config/zuzug.json): ${p} — найди новую формулировку и обнови снимок`),
+      (await verifyZuzug(zuzug(), fetchUrl)).map((p) => `Переезд (config/zuzug.json): ${p} — найди новую формулировку и обнови снимок`),
     );
     // документы округа: открываются, строки инвестплана разбираются, цитаты и дата решения на месте
     await check('Документы округа (config/district.json)', async () =>
-      (await verifyDistrict(district(), fetchFollowing(api))).map((p) => `Документы округа (config/district.json): ${p} — сверь документ и обнови снимок`),
+      (await verifyDistrict(district(), fetchUrl)).map((p) => `Документы округа (config/district.json): ${p} — сверь документ и обнови снимок`),
     );
     // Schulamt и Schulaufsicht округов: адрес и email ещё на страницах ведомств, запись есть у каждого округа школ реестра
     await check('Schulamt (config/schulamt.json)', async () => {
       const bezirke = [...new Set((await primarySchools(api)).map((s) => s.bezirk))];
-      return (await verifySchulamt(schulamt(), fetchFollowing(api), bezirke)).map((p) => `Schulamt (config/schulamt.json): ${p} — сверь страницу ведомства и обнови снимок`);
+      return (await verifySchulamt(schulamt(), fetchUrl, bezirke)).map((p) => `Schulamt (config/schulamt.json): ${p} — сверь страницу ведомства и обнови снимок`);
     });
   } finally {
     await api.dispose();

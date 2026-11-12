@@ -416,6 +416,19 @@ export const fetchFollowing =
     throw new Error('больше 5 переадресаций');
   };
 
+/**
+ * Запросы по одному и с паузой после каждого: сверки canary шлют на berlin.de ~30 запросов подряд, и без паузы
+ * последние получают 429 даже после повторов fetchFollowing — снимок остаётся несверенным.
+ */
+export const paced = (fetchUrl: (url: string) => Promise<Fetched>, ms: number) => {
+  let last: Promise<unknown> = Promise.resolve();
+  return (url: string): Promise<Fetched> => {
+    const run = last.then(() => fetchUrl(url));
+    last = run.catch(() => {}).then(() => new Promise((r) => setTimeout(r, ms)));
+    return run;
+  };
+};
+
 /** В context.json есть поиск Claude хотя бы по одной школе (queries) — тогда его обновляет только npm run context. */
 export const claudeSearched = (ctx: Context | PlzContext | null) => !!ctx && ('schools' in ctx ? ctx.schools : [ctx]).some((c) => c.queries.length > 0);
 

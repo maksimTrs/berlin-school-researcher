@@ -11,6 +11,7 @@ import {
   PlzContextSchema,
   PlzDraft,
   fetchFollowing,
+  paced,
   findQuote,
   foreignNumbers,
   inQuestion,
@@ -529,6 +530,31 @@ describe('fetchFollowing / readContext', () => {
       await vi.advanceTimersByTimeAsync(5000);
       expect((await gaveUp).status).toBe(429); // verifyDraft отклонит: «источник не загрузился: HTTP 429»
       expect(busy).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('paced: one request at a time, a pause after each — also after a failed one', async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: string[] = [];
+      const fetch = paced(async (url) => {
+        calls.push(url);
+        if (url === 'b') throw new Error('HTTP 500');
+        return { url, status: 200, contentType: '', body: Buffer.alloc(0) };
+      }, 2500);
+      const [a, b, c] = [fetch('a'), fetch('b'), fetch('c')];
+      b.catch(() => {});
+      await vi.advanceTimersByTimeAsync(0);
+      expect(calls).toEqual(['a']);
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(calls).toEqual(['a', 'b']);
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(calls).toEqual(['a', 'b', 'c']);
+      expect((await a).status).toBe(200);
+      await expect(b).rejects.toThrow('HTTP 500');
+      expect((await c).url).toBe('c');
     } finally {
       vi.useRealTimers();
     }
