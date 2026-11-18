@@ -50,6 +50,15 @@ export const config = {
   esbLayer: currentEsbLayer(),
 };
 
+/** Слой, на котором сняты значения живых тестов `test:smoke` S1–S8 (tests/smoke.test.ts): на другом слое они пропускаются. */
+export const SNAPSHOT_LAYER = 'esb_2026';
+
+/** Значения smoke-тестов сняты на прошлом слое — проверки зон молча пропускаются; `stale` говорит снять их заново. */
+export const smokeStale = (snapshot = SNAPSHOT_LAYER, current = config.esbLayer): string[] =>
+  snapshot === current
+    ? []
+    : [`test:smoke: значения S1–S8 сняты на слое ${snapshot}, а текущий — ${current}, поэтому проверки зон пропускаются: сними значения заново в tests/smoke.test.ts и поставь SNAPSHOT_LAYER = "${current}" в src/config.ts`];
+
 export const isRemote = process.env.CLAUDE_CODE_REMOTE === 'true';
 
 // Chromium и APIRequestContext не читают HTTPS_PROXY сами — в облачной сессии трафик идёт через прокси.

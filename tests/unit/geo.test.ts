@@ -1,6 +1,6 @@
 import type { APIRequestContext } from 'playwright';
 import { describe, expect, it } from 'vitest';
-import { berlinDay, config, currentEsbLayer } from '../../src/config.js';
+import { berlinDay, config, currentEsbLayer, smokeStale } from '../../src/config.js';
 import { checkWithoutZone, geocode, overridesStale, groupByZone, noZoneSchools, onStreet, plzZones, resolveStatus, schoolsCql, type Feature } from '../../src/geo.js';
 
 // ответ WFS, как его отдаёт Playwright APIResponse
@@ -158,6 +158,15 @@ describe('onStreet / WFS / zone holes', () => {
     const at = (lon: number) => ({ street: 'X', house: 1, suffix: null, lon, lat: lon });
     const groups = groupByZone([at(5), at(1)], [outer, enclave]);
     expect(Object.fromEntries(groups.map((g) => [g.zone.id, g.addrs.map((a) => a.lon)]))).toEqual({ A: [1], B: [5] });
+  });
+});
+
+describe('smoke snapshot after a zone layer switch', () => {
+  it('smoke values taken on the previous layer are named until SNAPSHOT_LAYER is updated', () => {
+    expect(smokeStale('esb_2026', 'esb_2026')).toEqual([]);
+    expect(smokeStale('esb_2026', 'esb_2027')).toEqual([
+      'test:smoke: значения S1–S8 сняты на слое esb_2026, а текущий — esb_2027, поэтому проверки зон пропускаются: сними значения заново в tests/smoke.test.ts и поставь SNAPSHOT_LAYER = "esb_2027" в src/config.ts',
+    ]);
   });
 });
 

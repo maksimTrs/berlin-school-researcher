@@ -1,13 +1,12 @@
 // Живые сервисы gdi.berlin.de, эталонные адреса S1–S5, PLZ и район S6–S8 (значения сняты 23.10.2026 на слое esb_2026). Портрет школы проверяет `npm run canary`.
 // Коды зон и число адресов — свойства слоя: на другом слое (с 1 августа) эти тесты пропускаются, идут только проверки без привязки к слою (S9).
-// Новый слой — сними значения заново и поменяй SNAPSHOT_LAYER.
+// Новый слой — сними значения заново и поменяй SNAPSHOT_LAYER в src/config.ts (`npm run stale` напомнит).
 import type { APIRequestContext } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { config, newApi } from '../src/config.js';
+import { config, newApi, SNAPSHOT_LAYER } from '../src/config.js';
 import { catchment, geocode, neighbors, plzZones } from '../src/geo.js';
 import { parseAddress } from '../src/schema.js';
 
-const SNAPSHOT_LAYER = 'esb_2026';
 const onLayer = it.runIf(config.esbLayer === SNAPSHOT_LAYER);
 
 let api: APIRequestContext;

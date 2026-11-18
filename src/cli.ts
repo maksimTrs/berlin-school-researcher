@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { config, newApi } from './config.js';
+import { config, newApi, smokeStale } from './config.js';
 import { AddressContextSchema, claudeSearched, Draft, farPlan, fetchFollowing, onSchoolSite, paced, PlzContextSchema, PlzDraft, readContext, verifyDraft, type Context, type PlzContext } from './context.js';
 import { district, districtFacts, districtStale, verifyDistrict } from './district.js';
 import { currentFigures, KEY_FIGURES, keyFigure, type Profile } from './extract.js';
@@ -536,7 +536,7 @@ async function canaryCmd() {
  * заявка округа в инвестпрограмму, решение о зонах прошлого слоя, esbOverrides прошлого слоя. Всё в порядке — stdout пустой.
  */
 async function staleCmd() {
-  const problems = [...districtStale(district()).map((p) => `config/district.json: ${p}`), ...overridesStale()];
+  const problems = [...districtStale(district()).map((p) => `config/district.json: ${p}`), ...overridesStale(), ...smokeStale()];
   if (problems.length) console.log(problems.map((p) => `- ${p}`).join('\n'));
 }
 
