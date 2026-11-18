@@ -747,7 +747,7 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null, bas
     .map(
       ({ school: s, data: d }) => `<section class="metric" id="school-${esc(s.bsn)}">
         <h3>${esc(schoolName(s))} · ${esc(s.bsn)}</h3>${schoolType(s)}${sesbNote(d.profile)}
-        ${linkList([portraitRow(d), placeRow(s)])}
+        ${linkList([...(s.address ? [`📍 ${esc(s.address)} — адрес школы`] : []), portraitRow(d), placeRow(s)])}
         ${startchancenNote(s)}
         ${scoreBlock(d, (d.pages.vunt ?? []).map((y) => y.year))}
         ${plzFacts(facts.get(s.bsn))}

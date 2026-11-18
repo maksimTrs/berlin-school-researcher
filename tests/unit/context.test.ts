@@ -812,6 +812,13 @@ describe('PLZ', () => {
     expect(renderPlzReport(result, { schools: [{ ...ctx, items: [plan] }] })).toContain('Веб-поиск по школе не проводился');
   });
 
+  it('PLZ school block: school address first in the links list; no address — no line', () => {
+    const withAddress = { ...school, address: 'Rüdesheimer Straße 24, 14197 Berlin' };
+    const html = renderPlzReport({ ...result, schools: [{ school: withAddress, data: data('09G06') }, result.schools[1]] });
+    expect(html).toContain('<ul class="links"><li>📍 Rüdesheimer Straße 24, 14197 Berlin — адрес школы</li><li>📊 ');
+    expect(renderPlzReport(result)).not.toContain('— адрес школы');
+  });
+
   it('SESB school in a PLZ report: language pair right under the heading of its block', () => {
     const sesbData = { ...data('09G06'), profile: { ...profile, fields: [[OFFERS, 'Staatliche Europa-Schule Berlin Deutsch/Russisch']] as [string, string][] } };
     const html = renderPlzReport({ ...result, schools: [{ school, data: sesbData }, result.schools[1]] });
