@@ -126,12 +126,24 @@ function inspectionLinks(inspections: SchoolData['inspections']): string {
     .join(' · ');
 }
 
-/** Ссылки школы с подписью, что за ними: Schulporträt, карта; отчёты инспекции — отдельной строкой. */
+/** Ссылки в блоке школы — по строке на ссылку с пояснением, что за ней. */
+const linkList = (rows: string[]) => `<ul class="links">${rows.map((r) => `<li>${r}</li>`).join('')}</ul>`;
+const portraitRow = (d: SchoolData) => `📊 ${link(d.portraitUrl, 'Schulporträt')} — все цифры школы по годам`;
+const placeRow = (s: School) => `🗺 ${link(maps.place(s), 'Google Maps')} — школа на карте`;
+
 function schoolLinks(s: School, data: SchoolData, home: Point, withInspections: boolean): string {
-  const map = [link(maps.place(s), 'Google Maps'), link(maps.walk(home, s), 'пешком от адреса'), link(maps.streetView(s), 'Street View')].join(' · ');
-  const reports = withInspections && data.inspections.length ? `<br>Отчёты Schulinspektion (PDF): ${inspectionLinks(data.inspections)}` : '';
-  return `${link(data.portraitUrl, 'Schulporträt')} — все цифры школы; карта: ${map}${reports}`;
+  return linkList([
+    portraitRow(data),
+    placeRow(s),
+    `🚶 ${link(maps.walk(home, s), 'Пешком от адреса')} — маршрут от квартиры до школы`,
+    `👀 ${link(maps.streetView(s), 'Street View')} — здание школы с улицы`,
+    ...(withInspections && data.inspections.length ? [`📄 Отчёты Schulinspektion (PDF): ${inspectionLinks(data.inspections)} — оценка школы инспекцией`] : []),
+  ]);
 }
+
+/** Ссылки соседней школы в ячейке таблицы — одной строкой. */
+const schoolLinksInline = (s: School, data: SchoolData, home: Point) =>
+  [link(data.portraitUrl, 'Schulporträt'), link(maps.place(s), 'Google Maps'), link(maps.walk(home, s), 'пешком от адреса'), link(maps.streetView(s), 'Street View')].join(' · ');
 
 function scoreBlock(data: SchoolData, years: string[]): string {
   const metrics = scoreSchool(data);
@@ -369,7 +381,7 @@ export function renderReport(r: AddressResult, ctx: Context | PlzContext | null 
       (o) => `<section>
   <h2>Тоже закреплённая школа общей зоны · ${esc(o.school.bsn)}</h2>
   <p><b>${esc(o.data.profile.name || o.school.name)}</b></p>${schoolType(o.school)}${sesbNote(o.data.profile)}
-  <div>${schoolLinks(o.school, o.data, addr, false)}</div>
+  ${schoolLinks(o.school, o.data, addr, false)}
   <p class="meta">Расстояние от адреса по прямой: ${o.school.distanceM ?? '—'} м</p>
   ${startchancenNote(o.school)}
   ${scoreBlock(o.data, (o.data.pages.vunt ?? []).map((y) => y.year))}
@@ -393,7 +405,7 @@ ${contextBlock(facts.get(o.school.bsn) ?? null, o.data.profile.name || o.school.
         <tbody>${others
           .map(
             (o) => `<tr>
-              <th scope="row">${esc(o.school.name)} <small>${esc(o.school.bsn)}${inStartchancen(o.school) ? ' · 🔶 Startchancen' : ''}</small><br><small>${schoolLinks(o.school, o.data, addr, false)}</small></th>
+              <th scope="row">${esc(o.school.name)} <small>${esc(o.school.bsn)}${inStartchancen(o.school) ? ' · 🔶 Startchancen' : ''}</small><br><small>${schoolLinksInline(o.school, o.data, addr)}</small></th>
               <td>${ROLE[o.role]}</td><td>${o.school.distanceM ?? '—'} м</td>
               ${KEY_FIGURES.map((k) => `<td>${figure(o.data, k)}</td>`).join('')}
             </tr>`,
@@ -431,7 +443,7 @@ ${
 
 <section>
   <h2>${MAIN_TITLE[c.status]} · ${esc(main.school.bsn)}</h2>${schoolType(main.school)}
-  <div>${schoolLinks(main.school, main.data, addr, true)}</div>
+  ${schoolLinks(main.school, main.data, addr, true)}
   <p class="meta">Расстояние от адреса по прямой: ${main.school.distanceM ?? '—'} м</p>
   ${startchancenNote(main.school)}
   ${scoreBlock(main.data, years)}
@@ -525,6 +537,7 @@ details img { display: block; margin-top: 8px; max-width: 100%; height: auto; }
 .startchancen details p { margin: 8px 0 0; }
 .context { display: grid; gap: 8px; min-width: 0; }
 .context ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+ul.links { margin: 8px 0; padding: 0; list-style: none; display: grid; gap: 4px; }
 .context p { margin: 0; }
 .context details p { margin: 6px 0 0; }
 .zone-map { margin: 8px 0 0; display: grid; gap: 6px; }
@@ -734,7 +747,7 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null, bas
     .map(
       ({ school: s, data: d }) => `<section class="metric" id="school-${esc(s.bsn)}">
         <h3>${esc(schoolName(s))} · ${esc(s.bsn)}</h3>${schoolType(s)}${sesbNote(d.profile)}
-        <div>${link(d.portraitUrl, 'Schulporträt')} — все цифры школы; карта: ${link(maps.place(s), 'Google Maps')}</div>
+        ${linkList([portraitRow(d), placeRow(s)])}
         ${startchancenNote(s)}
         ${scoreBlock(d, (d.pages.vunt ?? []).map((y) => y.year))}
         ${plzFacts(facts.get(s.bsn))}

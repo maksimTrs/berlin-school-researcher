@@ -660,8 +660,9 @@ describe('report', () => {
     ];
     const main = { ...result.schools[0], data: { ...result.schools[0].data, inspections } };
     const html = renderReport({ ...result, schools: [main] });
-    expect(html).toContain('>Schulporträt</a> — все цифры школы; карта: <a');
-    expect(html).toContain('<br>Отчёты Schulinspektion (PDF): <a href="https://www.bildung.berlin.de/b.pdf" target="_blank" rel="noopener">01.04.2020</a> · <a href="https://www.bildung.berlin.de/a.pdf" target="_blank" rel="noopener">01.02.2013</a>');
+    expect(html).toContain('<ul class="links"><li>📊 <a href="https://example.org" target="_blank" rel="noopener">Schulporträt</a> — все цифры школы по годам</li><li>🗺 ');
+    expect(html).toContain('>Пешком от адреса</a> — маршрут от квартиры до школы</li>');
+    expect(html).toContain('<li>📄 Отчёты Schulinspektion (PDF): <a href="https://www.bildung.berlin.de/b.pdf" target="_blank" rel="noopener">01.04.2020</a> · <a href="https://www.bildung.berlin.de/a.pdf" target="_blank" rel="noopener">01.02.2013</a>');
     expect(renderReport(result)).not.toContain('Отчёты Schulinspektion'); // нет отчётов — нет строки
   });
 
@@ -879,7 +880,7 @@ describe('PLZ', () => {
     const html = renderPlzReport(result, { schools: [melli, ginko] });
     const melliBlock = html.slice(html.indexOf('<h3>Melli-Beese'), html.indexOf('<h3>Schule am Ginkobaum'));
     expect(melliBlock).toContain('<b>Что известно из официальных источников</b>');
-    expect(melliBlock.match(/<li>/g)).toHaveLength(3);
+    expect(melliBlock.slice(melliBlock.indexOf('Что известно')).match(/<li>/g)).toHaveLength(3); // ссылки школы — тоже <li>, считаем только факты
     expect(html.slice(html.indexOf('<h3>Schule am Ginkobaum'))).toContain('Официальных сообщений о школе за период не найдено.');
     expect(html).toContain('Проверено 2026-10-23');
   });
