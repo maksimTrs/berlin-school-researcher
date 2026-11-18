@@ -260,6 +260,7 @@ flowchart TD
 | `src/extract.ts` | список подстраниц (`PAGES`) и ключевых цифр (`KEY_FIGURES`) — новая метрика = новая строка |
 | `src/score.ts` | маркер 🟢🟡🔴 за 3 года: отмены хуже средней по типу школ, дефицит учительских часов |
 | `src/startchancen.ts` | школа в программе Startchancen — по снимку `config/startchancen.json` |
+| `src/sesb.ts` | двуязычная школа (Staatliche Europa-Schule Berlin) и её языковая пара — из профиля Schulverzeichnis, строка 🌐 в шапке школы |
 | `src/context.ts` | факты из официальных источников — подробнее ниже |
 | `src/district.ts` | факты из документов округа по снимку `config/district.json`: строки инвестплана по BSN, цитаты решения о зонах |
 | `src/zuzug.ts` | блок «Переезд посреди учебного года» по снимку `config/zuzug.json` |

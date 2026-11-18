@@ -644,6 +644,15 @@ describe('report', () => {
     expect(renderReport(result)).not.toContain('Тип по Schulverzeichnis');
   });
 
+  it('SESB school: language pair in the report header; not SESB — no line', () => {
+    const sesbProfile: Profile = { ...profile, fields: [[OFFERS, 'Gebundener Ganztagbetrieb (GGB), Staatliche Europa-Schule Berlin Deutsch/Spanisch']] };
+    const main = { ...result.schools[0], data: { ...result.schools[0].data, profile: sesbProfile } };
+    const html = renderReport({ ...result, schools: [main] });
+    expect(html).toContain('<p>🌐 <b>Двуязычная школа — Staatliche Europa-Schule Berlin (SESB): Deutsch/Spanisch</b> <small>по Schulverzeichnis</small></p>');
+    expect(html.indexOf('Двуязычная школа')).toBeLessThan(html.indexOf('</header>')); // в шапке отчёта
+    expect(renderReport(result)).not.toContain('Двуязычная школа');
+  });
+
   it('a district document fact says why it is older than the publication window', async () => {
     const ctx = await verifyDraft(draft('07G32', []), BUERGEL, profile, fetchFixture, NOW);
     const plan = { category: 'construction' as const, published: '2025-02-25', planned: '2030', url: PRESS_URL, quote: 'x'.repeat(30), summaryRu: 'Заявка округа в инвестпрограмму', contradicts: null, host: 'www.berlin.de', source: 'official' as const, rule: 'district' as const };
@@ -788,6 +797,14 @@ describe('PLZ', () => {
     expect(renderPlzReport(result, { schools: [ctx] })).not.toContain('каждый факт сверен'); // окно поиска не показываем: поиска не было
     const plan = { category: 'capacity' as const, published: '2025-02-25', planned: '2028', url: PRESS_URL, quote: 'x'.repeat(30), summaryRu: 'Заявка — Erweiterungsbau, окончание — 2028', contradicts: null, host: 'www.berlin.de', source: 'official' as const, rule: 'district' as const };
     expect(renderPlzReport(result, { schools: [{ ...ctx, items: [plan] }] })).toContain('Веб-поиск по школе не проводился');
+  });
+
+  it('SESB school in a PLZ report: language pair right under the heading of its block', () => {
+    const sesbData = { ...data('09G06'), profile: { ...profile, fields: [[OFFERS, 'Staatliche Europa-Schule Berlin Deutsch/Russisch']] as [string, string][] } };
+    const html = renderPlzReport({ ...result, schools: [{ school, data: sesbData }, result.schools[1]] });
+    expect(html).toContain('<h3>Melli-Beese-Schule (Grundschule) · 09G06</h3><p>🌐 <b>Двуязычная школа — Staatliche Europa-Schule Berlin (SESB): Deutsch/Russisch</b>');
+    expect(html.match(/🌐 <b>Двуязычная школа/g)).toHaveLength(1); // только у SESB-школы
+    expect(renderPlzReport(result)).not.toContain('Двуязычная школа');
   });
 
   it('zone matched by code: the probable school and the other schools of the zone as candidates', () => {

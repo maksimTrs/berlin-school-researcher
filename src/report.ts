@@ -7,6 +7,7 @@ import type { SchoolData, YearPage } from './portrait.js';
 import type { AddressQuery, PlzQuery } from './schema.js';
 import { EMOJI, scoreSchool, verdict } from './score.js';
 import { sameAddress, schulamt } from './schulamt.js';
+import { sesbLanguages } from './sesb.js';
 import { startchancen } from './startchancen.js';
 import { zuzug } from './zuzug.js';
 
@@ -186,6 +187,12 @@ function zuzugBlock(): string {
   </details>`;
 }
 
+/** SESB — в шапку блока школы: языковая пара из профиля Schulverzeichnis; не SESB — пусто. */
+function sesbNote(profile: SchoolData['profile']): string {
+  const langs = sesbLanguages(profile);
+  return langs ? `<p>🌐 <b>Двуязычная школа — Staatliche Europa-Schule Berlin (SESB): ${esc(langs)}</b> <small>по Schulverzeichnis</small></p>` : '';
+}
+
 /** Куда обращаться: Schulamt и Schulaufsicht округа — снимок config/schulamt.json, роль каждого — пересказ цитаты SenBJF. */
 function officesBlock(bezirke: string[]): string {
   let s: ReturnType<typeof schulamt>;
@@ -354,7 +361,7 @@ export function renderReport(r: AddressResult, ctx: Context | PlzContext | null 
     .map(
       (o) => `<section>
   <h2>Тоже закреплённая школа общей зоны · ${esc(o.school.bsn)}</h2>
-  <p><b>${esc(o.data.profile.name || o.school.name)}</b></p>${schoolType(o.school)}
+  <p><b>${esc(o.data.profile.name || o.school.name)}</b></p>${schoolType(o.school)}${sesbNote(o.data.profile)}
   <div>${schoolLinks(o.school, o.data, addr, false)}</div>
   <p class="meta">Расстояние от адреса по прямой: ${o.school.distanceM ?? '—'} м</p>
   ${startchancenNote(o.school)}
@@ -403,7 +410,7 @@ ${contextBlock(facts.get(o.school.bsn) ?? null, o.data.profile.name || o.school.
 <header style="display:grid;gap:6px">
   <span class="eyebrow">Einschulbereich ${esc(c.esb ?? '—')} · слой ${esc(r.esbLayer)} · отчёт от ${esc(berlinDay(r.generatedAt))}</span>
   <h1>${esc(main.data.profile.name || main.school.name)}</h1>
-  <div class="meta">Адрес: <b>${esc(formatAddress(addr))}</b> (${esc(addr.bezirk)})${r.input.raw ? ` · ввод: «${esc(r.input.raw)}»` : ''}</div>
+  <div class="meta">Адрес: <b>${esc(formatAddress(addr))}</b> (${esc(addr.bezirk)})${r.input.raw ? ` · ввод: «${esc(r.input.raw)}»` : ''}</div>${sesbNote(main.data.profile)}
   ${officesBlock([addr.bezirk])}
 </header>
 
@@ -719,7 +726,7 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null, bas
   const schoolSections = r.schools
     .map(
       ({ school: s, data: d }) => `<section class="metric" id="school-${esc(s.bsn)}">
-        <h3>${esc(schoolName(s))} · ${esc(s.bsn)}</h3>${schoolType(s)}
+        <h3>${esc(schoolName(s))} · ${esc(s.bsn)}</h3>${schoolType(s)}${sesbNote(d.profile)}
         <div>${[link(d.portraitUrl, 'Schulporträt'), link(maps.place(s), 'Google Maps')].join(' · ')}</div>
         ${startchancenNote(s)}
         ${scoreBlock(d, (d.pages.vunt ?? []).map((y) => y.year))}
