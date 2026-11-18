@@ -33,17 +33,16 @@
 
 Точную школу даст только `/school` по полному адресу.
 
-«Что известно» ищет проблемные места школы и её сильные стороны: места и зона, признанные ведомством проблемы (в том числе Entwicklungsbedarf из отчёта Schulinspektion, если он не старше `pastMonths`), учителя, сильные стороны (Stärken инспекции, награды, программы — с сайта школы с пометкой «со слов школы»). Плановая стройка сама по себе не сигнал: пристройка для мест идёт в тему «Места», санация — свёрнутой строкой «Плановый ремонт».
+**Что в отчёте** (в обоих — у каждой школы):
 
-Документы округа, которые веб-поиск находит через раз, код берёт сам из `config/district.json` — уже в `lookup` и `plz`, без Claude, и вне лимитов фактов: строки инвестплана Bezirksamt по BSN школы (работы, статус, год окончания стройки `EndeBau`, приоритет в Dringlichkeitsliste) — пока год окончания не прошёл; цитаты решения о зонах (дефицит мест, новая зона) — пока идёт слой зон этого решения. Дата — дата решения Bezirksamt со страницы Beschlussprotokoll; `canary` сверяет её, разбор таблицы и цитаты. Сейчас в снимке только Charlottenburg-Wilmersdorf. Tempelhof-Schöneberg (Friedenau) таких документов не публикует: в базе решений Bezirksamt — только до октября 2024, по зонам 2026/27 — адресный список и карта без текста решения (проверено 2026-11-03), поэтому по школам Friedenau факты — только из веб-поиска. Снимок стареет сам — `canary` скажет, когда его обновить:
-- заявка в инвестпрограмму старше 15 месяцев (`PLAN_MAX_AGE_MONTHS`): Bezirksamt подаёт новую каждую весну — найди её среди Beschlüsse округа и замени запись (`url`, `title`, `published`, `decision`, прогони `npm test` и `canary`); новой пока нет — поставь `checked` с датой проверки, и через 6 месяцев (`RECHECK_MONTHS`, к следующей весне) `canary` попросит проверить снова;
-- с 1 августа решение о зонах прошлого слоя (`layer`) в отчёты больше не идёт: найди решение Bezirksamt о Zuschneidung der Einschulungsbereiche под новый слой и замени запись (цитаты — дословно из документа) или удали её.
+- маркер 🟢🟡🔴 за 3 года — отмены уроков и баланс учительских часов против средней по типу школ;
+- 🔶/ℹ️ Startchancen, 🌐 двуязычная школа (SESB) с языковой парой, тип по Schulverzeichnis (`schultyp`);
+- 📌 «Что известно» — факты из официальных источников со сверенной цитатой: места и зона, признанные проблемы (в том числе Entwicklungsbedarf из отчёта Schulinspektion не старше `pastMonths`), учителя, сильные стороны (Stärken инспекции, награды, программы; с сайта школы — «со слов школы»). Пристройка для мест — тема «Места», санация — свёрнутой строкой «Плановый ремонт»;
+- документы округа из `config/district.json` — код добавляет их сам, без Claude и вне лимитов фактов: строки инвестплана Bezirksamt по BSN (пока не прошёл год окончания стройки) и цитаты решения о зонах (пока идёт его слой зон). Сейчас только Charlottenburg-Wilmersdorf — Tempelhof-Schöneberg (Friedenau) таких документов не публикует, там факты только из веб-поиска;
+- в шапке — 🏛 Schulamt (распределяет места) и 🔎 Schulaufsicht (надзор и жалобы) округа: адрес, общий ящик, ссылка, без имён — из `config/schulamt.json`;
+- свёрнутый блок «🧳 Переезд в Берлин посреди учебного года» — цитаты SenBJF из `config/zuzug.json`.
 
-Рядом со школой — её тип по Schulverzeichnis (`schultyp`).
-
-В обоих отчётах есть свёрнутый блок «🧳 Переезд в Берлин посреди учебного года»: как Schulamt даёт место и что детей до 7 лет без немецкого берут сразу в обычный класс. Это цитаты SenBJF из `config/zuzug.json`, `canary` сверяет их с документами.
-
-В шапке обоих отчётов — куда обращаться: 🏛 Schulamt (округ, распределяет места) и 🔎 Schulaufsicht (Senat, надзор и жалобы) округа адреса, в отчёте по PLZ — каждого округа школ. Адрес, общий ящик и ссылка — со страниц ведомств из `config/schulamt.json`, без имён и личных номеров; `canary` сверяет их со страницами. На странице ведомства адреса нет или он устарел — адрес из официального документа (`addressSource`, например PDF SenBJF), в отчёте он ссылка на этот документ; нет и там — «н/д». У Schulaufsicht телефон секретариата и ящик `NNschulaufsicht@senbjf.berlin.de` — из справочника SenBJF «Guter Start ins Schulleben» (`directory`), его адрес сверяется с адресом страницы округа: разные здания — ⚠️ с обоими адресами и «уточните по телефону». `canary` сверяет запись справочника одним куском под заголовком своего округа.
+Снимки `config/*.json` сверяет `canary`; как их обновлять — [ниже](#обслуживание-снимков).
 
 <details>
 <summary>🏫 <b>Пример: отчёт по адресу</b> — <code>/school Ruppiner Straße 47, 10115</code></summary>
@@ -181,10 +180,14 @@ flowchart TD
         CX["context.ts<br/>скачать источник · сверить цитату, дату, школу, период"]
         ZU["zuzug.ts<br/>снимок config/zuzug.json"]
         SA["schulamt.ts<br/>снимок config/schulamt.json"]
+        DI["district.ts<br/>снимок config/district.json<br/>инвестплан по BSN · решение о зонах"]
+        SE["sesb.ts<br/>SESB из профиля Schulverzeichnis"]
         R["report.ts<br/>result.json → report.html"]
         G --> PT --> E --> R
         E --> SC --> R
+        E --> SE --> R
         SN --> R
+        DI -->|"context.json — уже в lookup / plz"| CX
         CX --> R
         ZU --> R
         SA --> R
@@ -197,7 +200,8 @@ flowchart TD
     B[("bildung.berlin.de<br/>Schulporträt")] --> PT
     M[("berlin.de<br/>карта школ Startchancen (KML)")] -.->|"update:startchancen · сверка в canary"| SN
 
-    D[("berlin.de · pardok.parlament-berlin.de<br/>пресс-релизы, ответы на запросы")] --> CX
+    DB[("berlin.de · Bezirksamt<br/>Beschlüsse: инвестплан, зоны")] -.->|"сверка в canary"| DI
+    D[("berlin.de · pardok.parlament-berlin.de · отчёты Schulinspektion · сайт школы<br/>пресс-релизы, ответы на запросы, инспекция")] --> CX
 
     R --> OUT["out/адрес/ · out/plz-… · out/ortsteil-…<br/>result.json · context.json · report.html · screens/*.png · basemap.jpg"]
     OUT --> P
@@ -253,14 +257,14 @@ flowchart TD
 
 | Файл | Что делает |
 |---|---|
-| `src/cli.ts` | команды `resolve`, `lookup`, `plz`, `context`, `canary`, `preflight`, `startchancen`; сбой одного адреса не останавливает остальные |
+| `src/cli.ts` | команды `resolve`, `lookup`, `plz`, `context`, `canary`, `stale`, `preflight`, `startchancen`; сбой одного адреса не останавливает остальные |
 | `src/preflight.ts` | проверка критичных источников до запуска браузера |
 | `src/geo.ts` | WFS: адрес, зона, выбор школы, соседи; PLZ/район → зоны (`plzZones`), подложка basemap.de (`basemap`), сверка `esbOverrides` (`checkOverrides`) |
 | `src/portrait.ts` | браузер, поиск школы по номеру, подстраницы, скриншоты |
 | `src/extract.ts` | список подстраниц (`PAGES`) и ключевых цифр (`KEY_FIGURES`) — новая метрика = новая строка |
 | `src/score.ts` | маркер 🟢🟡🔴 за 3 года: отмены хуже средней по типу школ, дефицит учительских часов |
 | `src/startchancen.ts` | школа в программе Startchancen — по снимку `config/startchancen.json` |
-| `src/sesb.ts` | двуязычная школа (Staatliche Europa-Schule Berlin) и её языковая пара — из профиля Schulverzeichnis, строка 🌐 в шапке школы |
+| `src/sesb.ts` | двуязычная школа (Staatliche Europa-Schule Berlin) и её языковая пара — из профиля Schulverzeichnis, строка 🌐 в шапке школы и `sesb` в сводке |
 | `src/context.ts` | факты из официальных источников — подробнее ниже |
 | `src/district.ts` | факты из документов округа по снимку `config/district.json`: строки инвестплана по BSN, цитаты решения о зонах |
 | `src/zuzug.ts` | блок «Переезд посреди учебного года» по снимку `config/zuzug.json` |
@@ -285,7 +289,7 @@ flowchart TD
 | `npm run plz -- --plz 10439 \| --ortsteil Friedenau [--street "…"]` | все зоны PLZ и/или района → `out/plz-…/` или `out/ortsteil-…/` |
 | `npm run plz -- --input plz-input.json` | до 5 запросов `{ "queries": [{ "plz"?, "ortsteil"?, "street"? }, …] }` → массив сводок; сбой одного не останавливает остальные, повтор — `skipped` |
 | `npm run context -- --dir out/<адрес>` | `context.draft.json` → проверка по документам → `context.json` и заново `report.html`; `plz-…` / `ortsteil-…` — по каждой школе зон, до 3 фактов на школу |
-| `npm run canary` | эталонный адрес проходит весь путь, при поломке сайта — подстраница и поле; сверяет снимки Startchancen, `config/zuzug.json` (официальный источник, дословная цитата, дата документа) `config/schulamt.json` (адрес и ящик на странице ведомства, запись у каждого округа реестра) и `config/district.json` (строки инвестплана разбираются, цитаты на месте, дата и ссылка на странице решения, заявка не старше 15 мес., решение о зонах — текущего слоя), `esbOverrides` и `schoolsWithoutZone` — со слоем зон и реестром школ |
+| `npm run canary` | эталонный адрес проходит весь путь, при поломке сайта — подстраница и поле; сверяет снимки `config/*.json` (Startchancen, zuzug, schulamt, district) с сайтами, `esbOverrides` и `schoolsWithoutZone` — со слоем зон и реестром школ; что делать, когда снимок устарел, — [обслуживание снимков](#обслуживание-снимков) |
 | `npm run stale` | снимки, устаревшие по календарю, без сети (то же, что hook на старте сессии); всё в порядке — пусто |
 | `npm run update:startchancen` | перезаписать снимок Startchancen (когда `canary` сказал, что список изменился) и закоммитить |
 | `npm run preflight` | доступны ли критичные источники; `lookup`, `plz` и `canary` проверяют сами и при сбое не запускаются (exit code 2) |
@@ -296,3 +300,14 @@ flowchart TD
 **CI** (`.github/workflows/ci.yml`), каждый push и PR в `main`: `npm ci` → `typecheck` → `npm test`, ~30 с. Живые сайты в CI не трогаем — их проверяют `test:smoke` и `canary`.
 
 **Отладка:** `--headed --slowmo 500` — видимый браузер; `--trace` → `npx playwright show-trace out/<адрес>/trace.zip`; `PWDEBUG=1` — Playwright Inspector.
+
+### Обслуживание снимков
+
+`canary` и `stale` говорят, какой снимок устарел. Строки и цитаты в снимок — только дословно из документа, не от себя.
+
+- **`config/district.json`** — дата записи — дата решения Bezirksamt со страницы Beschlussprotokoll (в PDF её нет); `canary` сверяет её, разбор таблицы и цитаты. Tempelhof-Schöneberg: в базе решений Bezirksamt — только до октября 2024, по зонам 2026/27 — адресный список и карта без текста решения (проверено 2026-11-03).
+  - Заявка в инвестпрограмму старше 15 месяцев (`PLAN_MAX_AGE_MONTHS`): Bezirksamt подаёт новую каждую весну — найди её среди Beschlüsse округа и замени запись (`url`, `title`, `published`, `decision`, прогони `npm test` и `canary`); новой пока нет — поставь `checked` с датой проверки, и через 6 месяцев (`RECHECK_MONTHS`, к следующей весне) `canary` попросит проверить снова.
+  - С 1 августа решение о зонах прошлого слоя (`layer`) в отчёты больше не идёт: найди решение Bezirksamt о Zuschneidung der Einschulungsbereiche под новый слой и замени запись или удали её.
+- **`config/schulamt.json`** — адрес и общий ящик со страниц ведомств. Адреса там нет или он устарел — из официального документа (`addressSource`, например PDF SenBJF), в отчёте он ссылка на этот документ; нет и там — «н/д». У Schulaufsicht телефон секретариата и ящик `NNschulaufsicht@senbjf.berlin.de` — из справочника SenBJF «Guter Start ins Schulleben» (`directory`); его адрес не совпал с адресом страницы округа — ⚠️ с обоими адресами и «уточните по телефону». `canary` сверяет запись справочника одним куском под заголовком своего округа. Страница переехала — найди новую на сайте округа.
+- **`config/zuzug.json`** — `canary` сверяет источник, цитату и дату документа; правило поменялось — найди новую формулировку в документе.
+- **`config/startchancen.json`** — `npm run update:startchancen` и коммит.

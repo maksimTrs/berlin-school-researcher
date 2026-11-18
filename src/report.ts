@@ -116,14 +116,21 @@ function figure(data: SchoolData, k: (typeof KEY_FIGURES)[number], year?: string
   return grades ? `${esc(v)} <small>(${esc(grades)})</small>` : esc(v);
 }
 
+/** Отчёты Schulinspektion: подпись — дата из текста сайта («… veröffentlicht am 01.04.2020»), новые первыми; без даты — подпись сайта, в конце. */
+function inspectionLinks(inspections: SchoolData['inspections']): string {
+  const dated = inspections.map((i) => ({ ...i, d: /(\d{2})\.(\d{2})\.(\d{4})/.exec(i.label) }));
+  const key = (d: RegExpExecArray | null) => (d ? `${d[3]}${d[2]}${d[1]}` : '');
+  return dated
+    .sort((a, b) => key(b.d).localeCompare(key(a.d)))
+    .map((i) => link(i.url, i.d ? i.d[0] : i.label))
+    .join(' · ');
+}
+
+/** Ссылки школы с подписью, что за ними: Schulporträt, карта; отчёты инспекции — отдельной строкой. */
 function schoolLinks(s: School, data: SchoolData, home: Point, withInspections: boolean): string {
-  return [
-    link(data.portraitUrl, 'Schulporträt'),
-    link(maps.place(s), 'Google Maps'),
-    link(maps.walk(home, s), 'Пешком от адреса'),
-    link(maps.streetView(s), 'Street View'),
-    ...(withInspections ? data.inspections.map((i) => link(i.url, `PDF: ${i.label}`)) : []),
-  ].join(' · ');
+  const map = [link(maps.place(s), 'Google Maps'), link(maps.walk(home, s), 'пешком от адреса'), link(maps.streetView(s), 'Street View')].join(' · ');
+  const reports = withInspections && data.inspections.length ? `<br>Отчёты Schulinspektion (PDF): ${inspectionLinks(data.inspections)}` : '';
+  return `${link(data.portraitUrl, 'Schulporträt')} — все цифры школы; карта: ${map}${reports}`;
 }
 
 function scoreBlock(data: SchoolData, years: string[]): string {
@@ -153,7 +160,7 @@ const inStartchancen = (s: School) => startchancen().schools.includes(s.bsn);
 const STARTCHANCEN_FAQ = 'https://www.berlin.de/sen/bildung/unterstuetzung/startchancen-programm/faq/';
 
 function startchancenNote(s: School): string {
-  const source = `<small>${link(startchancen().source, 'Список berlin.de')} на ${esc(startchancen().fetchedAt)}</small>`;
+  const source = `<small>По ${link(startchancen().source, 'списку школ программы')} (berlin.de) на ${esc(startchancen().fetchedAt)}</small>`;
   if (!inStartchancen(s)) return `<p class="note">ℹ️ Не в программе Startchancen. ${source}</p>`;
   return `<div class="startchancen">
     <p>🔶 <b>Школа в программе Startchancen</b>: больше учеников из социально неблагополучных семей, дополнительные деньги и персонал. ${source}</p>
@@ -180,7 +187,7 @@ function zuzugBlock(): string {
   }
   return `<details class="zuzug"><summary>🧳 Переезд в Берлин посреди учебного года — как дают место в школе</summary>
     <ul>${z.items
-      .map((i) => `<li>${esc(i.summaryRu)} <small>${link(i.url, new URL(i.url).pathname.endsWith('.pdf') ? 'PDF SenBJF' : 'berlin.de')}, ${esc(i.published ?? 'без даты на странице')}</small></li>`)
+      .map((i) => `<li>${esc(i.summaryRu)} <small>${link(i.url, new URL(i.url).pathname.endsWith('.pdf') ? 'PDF SenBJF' : 'страница SenBJF')}, ${esc(i.published ?? 'без даты на странице')}</small></li>`)
       .join('')}</ul>
     <p>${z.links.map((l) => link(l.url, l.label)).join('<br>')}</p>
     <p class="note">Цитаты сверены с документами ${esc(z.checkedAt)}; общие правила Берлина, не решение по конкретной школе.</p>
@@ -216,7 +223,7 @@ function officesBlock(bezirke: string[]): string {
     const email = listing?.email ?? o.email;
     // в tel: — первый номер из «030 90249-1701/1702»
     const phone = listing && `<a href="tel:${listing.phone.split('/')[0].replace(/\D/g, '')}">${esc(listing.phone)}</a>`;
-    return `<p>${title}: ${[address, phone, email && `<a href="mailto:${esc(email)}">${esc(email)}</a>`, link(o.url, 'berlin.de')].filter(Boolean).join(' · ')}</p>`;
+    return `<p>${title}: ${[address, phone, email && `<a href="mailto:${esc(email)}">${esc(email)}</a>`, link(o.url, 'страница ведомства')].filter(Boolean).join(' · ')}</p>`;
   };
   const rows = bezirke.map((b) => {
     const e = s.bezirke[b];
@@ -225,7 +232,7 @@ function officesBlock(bezirke: string[]): string {
   });
   if (!rows.length) return '';
   return `<div class="offices">
-    <p class="meta">${esc(s.roles.schulamt.summaryRu)} ${esc(s.roles.schulaufsicht.summaryRu)} <small>${link(s.roles.schulamt.url, 'SenBJF')}, ${link(s.roles.schulaufsicht.url, 'SenBJF')}</small></p>
+    <p class="meta">${esc(s.roles.schulamt.summaryRu)} ${esc(s.roles.schulaufsicht.summaryRu)} <small>Источники SenBJF: ${link(s.roles.schulamt.url, 'о Schulamt')} · ${link(s.roles.schulaufsicht.url, 'о Schulaufsicht')}</small></p>
     ${rows.join('')}
     <small>Адреса и ящики — со страниц ведомств, телефон и ящик Schulaufsicht — из справочника ${link(s.directory.url, s.directory.title)}; сверено ${esc(s.checkedAt)}, без имён и личных номеров: они на странице berlin.de.</small>
   </div>`;
@@ -727,7 +734,7 @@ export function renderPlzReport(r: PlzResult, ctx: PlzContext | null = null, bas
     .map(
       ({ school: s, data: d }) => `<section class="metric" id="school-${esc(s.bsn)}">
         <h3>${esc(schoolName(s))} · ${esc(s.bsn)}</h3>${schoolType(s)}${sesbNote(d.profile)}
-        <div>${[link(d.portraitUrl, 'Schulporträt'), link(maps.place(s), 'Google Maps')].join(' · ')}</div>
+        <div>${link(d.portraitUrl, 'Schulporträt')} — все цифры школы; карта: ${link(maps.place(s), 'Google Maps')}</div>
         ${startchancenNote(s)}
         ${scoreBlock(d, (d.pages.vunt ?? []).map((y) => y.year))}
         ${plzFacts(facts.get(s.bsn))}

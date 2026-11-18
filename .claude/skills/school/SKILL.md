@@ -88,7 +88,7 @@ argument-hint: <адрес>[; <адрес> ...]
 - места и зона — `Schulplatzmangel`, `Raummangel`, `Container`, `Einschulungsbereich`, `Filiale`, `Räume abgeben`, `Zügigkeit`;
 - учителя и уроки — `Lehrermangel`, `Unterrichtsausfall`, `Quereinsteiger`;
 - проблемы — `Schulinspektion`, `Beschwerde`, `Gewalt`, `Mobbing` (только ответ ведомства на запрос, не СМИ);
-- сильные стороны — `Preis`, `ausgezeichnet`, `gebundener Ganztag`, `Profil`, `bilingual`, `MINT`;
+- сильные стороны — `Preis`, `ausgezeichnet`, `gebundener Ganztag`, `Profil`, `bilingual`, `MINT` (SESB и языковая пара уже в шапке отчёта — поле `sesb` сводки, фактом их не бери);
 - ещё `Willkommensklasse`, `Schulleitung`, `Hort`.
 Отчёт Schulinspektion — по ссылке из `result.json` (`schools[0].data.inspections`, самый свежий), только если он опубликован за последние `context.pastMonths` месяцев (дата — в имени файла; инспекция бывает раз в несколько лет, старый отчёт код отклонит): из раздела «Stärken und Entwicklungsbedarf» — `strengths` и `concerns`.
 Сайт школы (`schools[0].school.web`) — только для `strengths`, страница программы или новости, не главная; в отчёте пометка «со слов школы».
@@ -165,10 +165,11 @@ argument-hint: <адрес>[; <адрес> ...]
 ## 5. Итог в чат
 
 На каждый адрес — несколько строк из сводки lookup:
-- `school` и `bsn`; `catchmentStatus`: `exact` / `override` — без пометок; `joint` — «⚠️ общая зона нескольких школ: закреплены все» и по каждой школе из `joint` строка «школа, `bsn`, `verdict`, 🔶/ℹ️ Startchancen» и её 📌 факты из stdout `context` (`schools[]`); `verdict: null` — «⚠️ нет данных: Schulporträt не загрузился» (причина — в `warnings`), черновик фактов по ней не пиши; остальное — ⚠️, `candidates` и «уточнить в Schulamt района»;
+- `school` и `bsn`; `catchmentStatus`: `exact` / `override` — без пометок; `joint` — «⚠️ общая зона нескольких школ: закреплены все» и по каждой школе из `joint` строка «школа, `bsn`, `verdict`, 🔶/ℹ️ Startchancen, 🌐 `sesb` (если не `null`)» и её 📌 факты из stdout `context` (`schools[]`); `verdict: null` — «⚠️ нет данных: Schulporträt не загрузился» (причина — в `warnings`), черновик фактов по ней не пиши; остальное — ⚠️, `candidates` и «уточнить в Schulamt района»;
 - `withoutZone`, если есть, — строка «ℹ️ В зоне стоит и <школа>: своей зоны у неё нет, в закреплённые не входит» (причина — в отчёте);
 - `verdict` — как есть, без пересказа и своих оценок;
 - `startchancen: true` — строка «🔶 В программе Startchancen: больше учеников из социально неблагополучных семей, дополнительные деньги и персонал (что это значит — в отчёте)»; `false` — «ℹ️ Не в программе Startchancen»;
+- `sesb` не `null` — строка «🌐 Двуязычная школа (SESB): `sesb`»;
 - ⚠️ `alternatives` адреса, если есть;
 - ⚠️ `warnings` — как есть, если есть (школы без данных в отчёте или неприменённая поправка зоны);
 - 📌 `items` из stdout `context` — по строке «дата · `summaryRu`» без своих добавлений (`longTerm: true` — «🗓 дальний план, `planned` · `summaryRu`»; `rule: "district"` и `category: "construction"` — «🛠 плановый ремонт по заявке округа · `summaryRu`», как свёрнутая строка в отчёте); пустой — «📌 Официальных сообщений о школе за период не найдено»;

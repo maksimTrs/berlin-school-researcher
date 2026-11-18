@@ -23,6 +23,7 @@ import {
 import { Input, parseAddress, PlzInput, PlzQuery, type AddressQuery } from './schema.js';
 import { verifySchulamt, schulamt } from './schulamt.js';
 import { scoreProblems, scoreSchool, verdict } from './score.js';
+import { sesbLanguages } from './sesb.js';
 import { diffSchools, fetchStartchancen, saveSnapshot, startchancen } from './startchancen.js';
 import { verifyZuzug, zuzug } from './zuzug.js';
 
@@ -274,6 +275,7 @@ function summarize({ result: r, dir }: { result: AddressResult; dir: string | nu
         bsn: school.bsn,
         verdict: d ? verdict(scoreSchool(d)).text : null,
         startchancen: startchancen().schools.includes(school.bsn),
+        sesb: d ? sesbLanguages(d.profile) : null,
       };
     }),
     warnings: r.warnings,
@@ -281,6 +283,8 @@ function summarize({ result: r, dir }: { result: AddressResult; dir: string | nu
     // цифры для 💭 в итоге: значения как на сайте, null — нет данных
     keyFigures: main ? currentFigures(main.data.pages) : null,
     startchancen: main ? startchancen().schools.includes(main.school.bsn) : null,
+    // двуязычная школа: языковая пара («Deutsch/Spanisch»), не SESB — null
+    sesb: main ? sesbLanguages(main.data.profile) : null,
     report: dir && join(dir, 'report.html'),
     result: dir && join(dir, 'result.json'),
   };
@@ -419,6 +423,7 @@ function summarizePlz({ result: r, dir }: { result: PlzResult; dir: string | nul
           bsn: s.bsn,
           verdict: d ? verdict(scoreSchool(d)).text : null,
           startchancen: startchancen().schools.includes(s.bsn),
+          sesb: d ? sesbLanguages(d.profile) : null,
         };
       }),
       withoutZone: (z.withoutZone ?? []).map((s) => `${s.name} (${s.bsn})`),

@@ -653,6 +653,18 @@ describe('report', () => {
     expect(renderReport(result)).not.toContain('Двуязычная школа');
   });
 
+  it('school links say what they are; inspection reports — by date, newest first', () => {
+    const inspections = [
+      { label: 'Bericht der Schulinspektion veröffentlicht am 01.02.2013', url: 'https://www.bildung.berlin.de/a.pdf' },
+      { label: 'Bericht der Schulinspektion veröffentlicht am 01.04.2020', url: 'https://www.bildung.berlin.de/b.pdf' },
+    ];
+    const main = { ...result.schools[0], data: { ...result.schools[0].data, inspections } };
+    const html = renderReport({ ...result, schools: [main] });
+    expect(html).toContain('>Schulporträt</a> — все цифры школы; карта: <a');
+    expect(html).toContain('<br>Отчёты Schulinspektion (PDF): <a href="https://www.bildung.berlin.de/b.pdf" target="_blank" rel="noopener">01.04.2020</a> · <a href="https://www.bildung.berlin.de/a.pdf" target="_blank" rel="noopener">01.02.2013</a>');
+    expect(renderReport(result)).not.toContain('Отчёты Schulinspektion'); // нет отчётов — нет строки
+  });
+
   it('a district document fact says why it is older than the publication window', async () => {
     const ctx = await verifyDraft(draft('07G32', []), BUERGEL, profile, fetchFixture, NOW);
     const plan = { category: 'construction' as const, published: '2025-02-25', planned: '2030', url: PRESS_URL, quote: 'x'.repeat(30), summaryRu: 'Заявка округа в инвестпрограмму', contradicts: null, host: 'www.berlin.de', source: 'official' as const, rule: 'district' as const };
